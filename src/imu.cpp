@@ -25,6 +25,12 @@ void imu_init() {
     
     long nb_samples = 2000;
     for (int i = 0; i < nb_samples; i++) {
+        // --- MODIFICATION : Clignotement LED ---
+        // Inverse l'état de la LED tous les 50 tours (env. 5-6 Hz)
+        if (i % 50 == 0) {
+            digitalWrite(PIN_LED, !digitalRead(PIN_LED)); 
+        }
+
         sensors_event_t a, g, temp;
         mpu.getEvent(&a, &g, &temp);
         
@@ -42,10 +48,14 @@ void imu_init() {
             acc_roll_cal += asin(a.acceleration.y / acc_total) * -57.296;
         }
 
+        // Affichage progression discret (un point tous les 200 samples)
         if(i % 200 == 0) Serial.print(".");
         delay(2);
     }
     
+    // --- MODIFICATION : On s'assure que la LED est éteinte à la fin ---
+    digitalWrite(PIN_LED, LOW); 
+
     gyro_roll_cal /= nb_samples;
     gyro_pitch_cal /= nb_samples;
     gyro_yaw_cal /= nb_samples;
@@ -61,22 +71,24 @@ void imu_read(DroneState *drone) {
     mpu.getEvent(&a, &g, &temp);
 
     // --- 1. GYRO (ECHANGE X <-> Y et INVERSIONS) ---
-    // Vos observations : Roll physique joue sur Pitch code -> On inverse X et Y
     // Roll : Utilise Gyro Y
     // Pitch : Utilise Gyro X
     
-    float gyro_roll = (g.gyro.y - gyro_pitch_cal) * 57.296;  // On prend Y pour le Roll
-    float gyro_pitch = (g.gyro.x - gyro_roll_cal) * 57.296;  // On prend X pour le Pitch
+    float gyro_roll = (g.gyro.y - gyro_pitch_cal) * 57.296;  
+    float gyro_pitch = (g.gyro.x - gyro_roll_cal) * 57.296;  
     float gyro_yaw = (g.gyro.z - gyro_yaw_cal) * 57.296;
 
-    // Ajustement des signes selon vos tests (Inversion pour avoir le bon sens)
-    gyro_roll *= 1;   // A tester : Si incliner à droite donne negatif, mettre -1
-    gyro_pitch *= -1; // A tester : Si nez en haut donne negatif, mettre 1
+    // Ajustement des signes (Selon vos tests précédents)
+    gyro_roll *= 1;   
+    gyro_pitch *= 1; 
     gyro_yaw *= -1;
 
-    drone->gyro_roll_input = (drone->gyro_roll_input * 0.7) + (gyro_roll * 0.3);
-    drone->gyro_pitch_input = (drone->gyro_pitch_input * 0.7) + (gyro_pitch * 0.3);
-    drone->gyro_yaw_input = (drone->gyro_yaw_input * 0.7) + (gyro_yaw * 0.3);
+    // --- MODIFICATION FILTRE : Plus réactif ---
+    // Ancien (ESP32) : 0.7 historique + 0.3 nouveau -> Trop de latence
+    // Nouveau (Recommandé) : 0.2 historique + 0.8 nouveau -> Proche de l'Arduino
+    drone->gyro_roll_input = (drone->gyro_roll_input * 0.2) + (gyro_roll * 0.8);
+    drone->gyro_pitch_input = (drone->gyro_pitch_input * 0.2) + (gyro_pitch * 0.8);
+    drone->gyro_yaw_input = (drone->gyro_yaw_input * 0.2) + (gyro_yaw * 0.8);
 
     // 2. Integration
     drone->angle_pitch += gyro_pitch * 0.004;
@@ -88,12 +100,12 @@ void imu_read(DroneState *drone) {
     // --- 3. ACCEL (ECHANGE X <-> Y) ---
     float acc_total_vector = sqrt(a.acceleration.x*a.acceleration.x + a.acceleration.y*a.acceleration.y + a.acceleration.z*a.acceleration.z);
     
+    // Poids de l'accéléromètre (Correction de dérive)
     float acc_weight = 0.01; 
     float gyro_weight = 0.99;
 
     // Calcul PITCH via ACCEL X (Swap)
     if(abs(a.acceleration.x) < acc_total_vector){
-        // Signe inversé (-57.296) pour corriger "Nez bas = monte"
         float angle_pitch_acc = asin(a.acceleration.x / acc_total_vector) * 57.296;
         angle_pitch_acc -= acc_pitch_cal; 
         

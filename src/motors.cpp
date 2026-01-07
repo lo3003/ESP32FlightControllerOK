@@ -73,10 +73,10 @@ void motors_mix(DroneState *drone) {
 }
 
 void motors_write() {
-    ledcWrite(PWM_CH1, (esc_1 * 16383) / 20000);
-    ledcWrite(PWM_CH2, (esc_2 * 16383) / 20000);
-    ledcWrite(PWM_CH3, (esc_3 * 16383) / 20000);
-    ledcWrite(PWM_CH4, (esc_4 * 16383) / 20000);
+    ledcWrite(PWM_CH1, (esc_1 * 16383) / 4000);
+    ledcWrite(PWM_CH2, (esc_2 * 16383) / 4000);
+    ledcWrite(PWM_CH3, (esc_3 * 16383) / 4000);
+    ledcWrite(PWM_CH4, (esc_4 * 16383) / 4000);
 }
 
 void motors_write_direct(int m1, int m2, int m3, int m4) {

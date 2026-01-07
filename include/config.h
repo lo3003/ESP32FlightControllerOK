@@ -8,9 +8,8 @@
 #define PIN_MOTOR_3    25  // Arrière Gauche (CCW)
 #define PIN_MOTOR_4    26  // Avant Gauche (CW)
 
-// --- CONFIGURATION ESC ---
-// ATTENTION : Laisser à 250Hz (Standard OneShot125 / PWM Rapide)
-#define ESC_FREQ       50 
+
+#define ESC_FREQ       250 
 
 // --- RADIO (S.BUS) ---
 #define PIN_SBUS_RX    4   
@@ -24,16 +23,16 @@
 // --- PARAMETRES DE VOL (PID) ---
 #define PID_P_ROLL     1.3
 #define PID_I_ROLL     0.005
-#define PID_D_ROLL     18.0
+#define PID_D_ROLL     3
 #define PID_MAX_ROLL   400
 
 #define PID_P_PITCH    1.3
 #define PID_I_PITCH    0.005
-#define PID_D_PITCH    18.0
+#define PID_D_PITCH    3
 #define PID_MAX_PITCH  400
 
 #define PID_P_YAW      4.0
-#define PID_I_YAW      0.02
+#define PID_I_YAW      0.04
 #define PID_D_YAW      0.0
 #define PID_MAX_YAW    400
 

@@ -62,6 +62,7 @@ void setup() {
         drone.current_mode = MODE_SAFE;
         imu_init(); 
         pid_init();
+        pid_init_params(&drone);
     }
     
     loop_timer = micros();
