@@ -19,7 +19,7 @@ void imu_init() {
 
     mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
     mpu.setGyroRange(MPU6050_RANGE_500_DEG);
-    mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+    mpu.setFilterBandwidth(MPU6050_BAND_184_HZ);
 
     Serial.println("Calibration (Ne pas bouger)...");
     
@@ -80,7 +80,7 @@ void imu_read(DroneState *drone) {
 
     // Ajustement des signes (Selon vos tests précédents)
     gyro_roll *= 1;   
-    gyro_pitch *= -1; 
+    gyro_pitch *= 1; 
     gyro_yaw *= -1;
 
     // --- MODIFICATION FILTRE : Plus réactif ---
