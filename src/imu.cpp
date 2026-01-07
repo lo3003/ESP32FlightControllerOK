@@ -45,7 +45,7 @@ void imu_init() {
             acc_pitch_cal += asin(a.acceleration.x / acc_total) * 57.296;
         }
         if(abs(a.acceleration.y) < acc_total) {
-            acc_roll_cal += asin(a.acceleration.y / acc_total) * -57.296;
+            acc_roll_cal += asin(a.acceleration.y / acc_total) * 57.296;
         }
 
         // Affichage progression discret (un point tous les 200 samples)
@@ -80,7 +80,7 @@ void imu_read(DroneState *drone) {
 
     // Ajustement des signes (Selon vos tests précédents)
     gyro_roll *= 1;   
-    gyro_pitch *= 1; 
+    gyro_pitch *= -1; 
     gyro_yaw *= -1;
 
     // --- MODIFICATION FILTRE : Plus réactif ---

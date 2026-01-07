@@ -35,18 +35,18 @@ void radio_read_raw() {
         data = sbus.data();
         
         // ROLL (Ch 3)
-        // Était false -> Passe à true pour inverser (Gauche deviendra Droite)
-        raw_channel_1 = process_channel(data.ch[3], true); 
+        
+        raw_channel_1 = process_channel(data.ch[3], false); 
         
         // PITCH (Ch 1) 
-        // Était true -> Passe à false pour inverser (Haut deviendra Bas/Piquer)
-        raw_channel_2 = process_channel(data.ch[1], false); 
+        
+        raw_channel_2 = process_channel(data.ch[1], true); 
         
         // THROTTLE (Ch 2)
         raw_channel_3 = process_channel(data.ch[2], false); 
         
         // YAW (Ch 0)
-        // Vérifiez aussi le Yaw ! Si Manche à Gauche -> Le drone doit tourner à Gauche (Anti-Horaire)
+    
         raw_channel_4 = process_channel(data.ch[0], false);
     }
 }
