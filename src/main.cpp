@@ -26,6 +26,9 @@ void setup() {
     
     // 2. Init Radio
     radio_init();
+
+    motors_write_direct(2000, 2000, 2000, 2000);
+
     start_telemetry_task(&drone); // Optionnel
 
     Serial.println(F("Attente Radio... Moteurs Maintenus à MAX (2000us)"));
@@ -90,10 +93,15 @@ void loop() {
                 break;
 
             case MODE_ARMED:
-                motors_write_direct(MIN_THROTTLE_IDLE, MIN_THROTTLE_IDLE, MIN_THROTTLE_IDLE, MIN_THROTTLE_IDLE);
+                motors_stop(); // <--- CHANGEMENT : On force l'arrêt au lieu du ralenti
                 digitalWrite(PIN_LED, LOW);
-                if(drone.channel_3 > 1200) drone.current_mode = MODE_FLYING;
-                if(drone.channel_3 < 1200 && drone.channel_4 > 1800) {
+                
+                // CHANGEMENT : On décolle plus tôt (dès 1040 au lieu de 1200)
+                // Cela permet une transition plus douce sans zone morte
+                if(drone.channel_3 > 1040) drone.current_mode = MODE_FLYING;
+                
+                // Désarmement (Code existant)
+                if(drone.channel_3 < 1050 && drone.channel_4 > 1800) {
                      if(arming_timer == 0) arming_timer = millis();
                      else if(millis() - arming_timer > 1000) {
                         drone.current_mode = MODE_SAFE;
@@ -103,11 +111,31 @@ void loop() {
                 break;
 
             case MODE_FLYING:
+                // On réactive l'intelligence de vol
                 pid_compute_setpoints(&drone);
                 pid_compute(&drone);
                 motors_mix(&drone);
                 motors_write();
+                
+                // Sécurité désarmement en vol
                 if(drone.channel_3 < 1100) drone.current_mode = MODE_ARMED;
+                break;
+
+            // ... après le case MODE_FLYING
+            case MODE_WEB_TEST:
+                // On applique directement les valeurs reçues du Wifi
+                motors_write_direct(
+                    drone.web_test_vals[1], 
+                    drone.web_test_vals[2], 
+                    drone.web_test_vals[3], 
+                    drone.web_test_vals[4]
+                );
+                
+                // SÉCURITÉ : Si on touche au stick des gaz, on coupe tout immédiatement !
+                if(drone.channel_3 > 1100) {
+                    drone.current_mode = MODE_SAFE;
+                    motors_stop();
+                }
                 break;
         }
     }

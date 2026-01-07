@@ -7,7 +7,8 @@ typedef enum {
     MODE_SETUP,          // Mode spécial Setup Wizard
     MODE_PRE_ARM,        // Attente armement
     MODE_ARMED,          // Moteurs au ralenti
-    MODE_FLYING          // En vol PID actifs
+    MODE_FLYING ,
+    MODE_WEB_TEST       // Mode de test via interface web
 } FlightMode;
 
 typedef struct {
@@ -35,6 +36,19 @@ typedef struct {
     float pid_output_roll;
     float pid_output_pitch;
     float pid_output_yaw;
+
+    // --- REGLAGES PID (WEB TUNING) ---
+    float p_pitch_roll;
+    float i_pitch_roll;
+    float d_pitch_roll;
+
+    float p_yaw;
+    float i_yaw;
+    float d_yaw;
+
+    float p_level; // Force de l'auto-stabilisation
+
+    int web_test_vals[5];
 
 } DroneState;
 
