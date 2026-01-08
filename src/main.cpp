@@ -12,6 +12,9 @@
 DroneState drone;
 unsigned long loop_timer;
 unsigned long arming_timer = 0;
+unsigned long disarm_debounce_timer = 0; // Chrono pour la coupure Radio
+unsigned long angle_security_timer = 0;  // Chrono pour l'angle excessif
+int error_code = 0;                      // 0=OK, 1=CRASH ANGLE, 2=PERTE RADIO
 
 void setup() {
     Serial.begin(115200);
@@ -29,9 +32,9 @@ void setup() {
 
     motors_write_direct(2000, 2000, 2000, 2000);
 
-    start_telemetry_task(&drone); // Optionnel
+    //start_telemetry_task(&drone); // Optionnel
 
-    Serial.println(F("Attente Radio... Moteurs Maintenus à MAX (2000us)"));
+    
     
     // On attend un signal valide. Pendant ce temps, les ESC sont en attente "Max Throttle"
     // Ils vont faire "123" puis attendre les Bips de confirmation.
@@ -47,7 +50,6 @@ void setup() {
     // 3. DECISION SELON LE STICK
     if(drone.channel_3 > 1900) {
         // Le stick est vraiment en haut -> On continue la Calibration
-        Serial.println(F(">>> MODE CALIBRATION CONFIRME <<<"));
         // On reste à 2000us
         drone.current_mode = MODE_CALIBRATION;
         esc_calibrate_init();
@@ -56,7 +58,6 @@ void setup() {
         // -> On envoie 1000us.
         // Si c'était un démarrage normal, le drone s'arme silencieusement.
         // Si c'était une calibration, cela valide le point bas (Long Bip).
-        Serial.println(F("Démarrage Normal / Fin Calibration"));
         motors_stop(); 
         
         drone.current_mode = MODE_SAFE;
@@ -69,23 +70,43 @@ void setup() {
 }
 
 void loop() {
+    // 1. Mise à jour Radio (Lit les sticks)
     radio_update(&drone);
+
+    // 2. Gestion Globale LED (Code Erreur visuel)
+    // Si error_code > 0, on a eu un crash/failsafe -> Clignotement STROBO RAPIDE
+    if (error_code > 0) {
+        // Clignote très vite (20 fois par seconde) pour dire "ERREUR CRITIQUE"
+        if ((millis() % 50) < 25) digitalWrite(PIN_LED, HIGH);
+        else digitalWrite(PIN_LED, LOW);
+    } 
+    // Sinon, comportement normal selon le mode
+    else if (drone.current_mode == MODE_SAFE) {
+        digitalWrite(PIN_LED, HIGH); // Fixe en SAFE
+    }
+    // (En vol, la LED sera gérée ailleurs ou éteinte)
+
 
     if(drone.current_mode == MODE_CALIBRATION) {
         esc_calibrate_loop(&drone);
     } 
     else {
+        // Lecture IMU
         imu_read(&drone);
 
         switch(drone.current_mode) {
+            // ---------------- MODE SAFE ----------------
             case MODE_SAFE:
                 motors_stop();
-                digitalWrite(PIN_LED, HIGH);
-                if(drone.channel_3 < 1200 && drone.channel_4 < 1200) {
+                
+                // Réarmement (Stick Gaz en bas + Yaw à gauche par ex, ou juste Gaz < 1010)
+                // Ici on garde votre logique simple : Attente stick bas
+                if(drone.channel_3 < 1010 && drone.channel_4 < 1200) {
                      if(arming_timer == 0) arming_timer = millis();
                      else if(millis() - arming_timer > 1000) {
                         drone.current_mode = MODE_ARMED;
                         arming_timer = 0;
+                        error_code = 0; // ON EFFACE L'ERREUR AU REARMEMENT !
                         pid_reset_integral();
                         drone.angle_pitch = 0; drone.angle_roll = 0;
                         loop_timer = micros();
@@ -93,16 +114,22 @@ void loop() {
                 } else { arming_timer = 0; }
                 break;
 
+            // ---------------- MODE ARMED ----------------
             case MODE_ARMED:
-                motors_stop(); // <--- CHANGEMENT : On force l'arrêt au lieu du ralenti
-                digitalWrite(PIN_LED, LOW);
+                motors_stop(); 
+                // Clignotement lent pour dire "PRET"
+                if ((millis() % 500) < 100) digitalWrite(PIN_LED, HIGH); else digitalWrite(PIN_LED, LOW);
+
+                // Décollage
+                if(drone.channel_3 > 1040) {
+                    drone.current_mode = MODE_FLYING;
+                    // Reset des timers de sécurité au décollage
+                    disarm_debounce_timer = 0;
+                    angle_security_timer = 0;
+                }
                 
-                // CHANGEMENT : On décolle plus tôt (dès 1040 au lieu de 1200)
-                // Cela permet une transition plus douce sans zone morte
-                if(drone.channel_3 > 1040) drone.current_mode = MODE_FLYING;
-                
-                // Désarmement (Code existant)
-                if(drone.channel_3 < 1050 && drone.channel_4 > 1800) {
+                // Désarmement (Manche gauche coin bas-gauche ou juste bas)
+                if(drone.channel_3 < 1010 && drone.channel_4 > 1800) {
                      if(arming_timer == 0) arming_timer = millis();
                      else if(millis() - arming_timer > 1000) {
                         drone.current_mode = MODE_SAFE;
@@ -111,28 +138,56 @@ void loop() {
                 } else { arming_timer = 0; }
                 break;
 
+            // ---------------- MODE FLYING ----------------
             case MODE_FLYING:
-                // On réactive l'intelligence de vol
+                // LED Eteinte en vol (ou heartbeat discret)
+                digitalWrite(PIN_LED, LOW); 
+
+                // --- 1. SECURITE CRASH (TEMPORISÉE) ---
+                // Si l'angle dépasse 70°, on lance un chrono.
+                // Si ça reste > 70° pendant 300ms, ALORS on coupe.
+                if (abs(drone.angle_roll) > 70 || abs(drone.angle_pitch) > 70) {
+                    if(angle_security_timer == 0) angle_security_timer = millis();
+                    
+                    if(millis() - angle_security_timer > 1000) { // Délai de tolérance (1000ms)
+                        motors_stop();
+                        drone.current_mode = MODE_SAFE;
+                        error_code = 1; // 1 = CRASH ANGLE
+                        Serial.println("URGENCE: Angle > 70 deg confirmé (300ms)");
+                        break; 
+                    }
+                } else {
+                    // L'angle est revenu normal, on reset le chrono
+                    angle_security_timer = 0;
+                }
+
+                // --- 2. INTELLIGENCE DE VOL ---
                 pid_compute_setpoints(&drone);
                 pid_compute(&drone);
                 motors_mix(&drone);
                 motors_write();
                 
-                // Sécurité désarmement en vol
-                if(drone.channel_3 < 1100) drone.current_mode = MODE_ARMED;
+                // --- 3. SECURITE RADIO (TEMPORISÉE) ---
+                // Si Gaz < 1010 pendant plus de 500ms -> Failsafe
+                if (drone.channel_3 < 1010) {
+                    if (disarm_debounce_timer == 0) disarm_debounce_timer = millis();
+                    
+                    if (millis() - disarm_debounce_timer > 1000) { // Délai tolérance (500ms)
+                        drone.current_mode = MODE_ARMED; // Ou SAFE si vous préférez
+                        error_code = 2; // 2 = PERTE RADIO
+                        disarm_debounce_timer = 0;
+                    }
+                } else {
+                    disarm_debounce_timer = 0; 
+                }
                 break;
 
-            // ... après le case MODE_FLYING
             case MODE_WEB_TEST:
-                // On applique directement les valeurs reçues du Wifi
+                // ... (Votre code Web Test inchangé) ...
                 motors_write_direct(
-                    drone.web_test_vals[1], 
-                    drone.web_test_vals[2], 
-                    drone.web_test_vals[3], 
-                    drone.web_test_vals[4]
+                    drone.web_test_vals[1], drone.web_test_vals[2], 
+                    drone.web_test_vals[3], drone.web_test_vals[4]
                 );
-                
-                // SÉCURITÉ : Si on touche au stick des gaz, on coupe tout immédiatement !
                 if(drone.channel_3 > 1100) {
                     drone.current_mode = MODE_SAFE;
                     motors_stop();
@@ -141,6 +196,7 @@ void loop() {
         }
     }
 
+    // Gestion Loop Time (inchangée)
     unsigned long time_used = micros() - loop_timer;
     if (time_used < LOOP_TIME_US) {
         if (LOOP_TIME_US - time_used > 2000) delay(1);

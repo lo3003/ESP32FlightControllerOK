@@ -21,19 +21,19 @@
 #define I2C_SPEED      400000
 
 // --- PARAMETRES DE VOL (PID) ---
-#define PID_P_ROLL     1.3
-#define PID_I_ROLL     0.005
-#define PID_D_ROLL     3
+#define PID_P_ROLL     1.5
+#define PID_I_ROLL     0.015
+#define PID_D_ROLL     5
 #define PID_MAX_ROLL   400
 
-#define PID_P_PITCH    1.3
-#define PID_I_PITCH    0.005
-#define PID_D_PITCH    3
+#define PID_P_PITCH    1.5
+#define PID_I_PITCH    0.015
+#define PID_D_PITCH    5
 #define PID_MAX_PITCH  400
 
-#define PID_P_YAW      4.0
-#define PID_I_YAW      0.04
-#define PID_D_YAW      0.0
+#define PID_P_YAW      0
+#define PID_I_YAW      0
+#define PID_D_YAW      0
 #define PID_MAX_YAW    400
 
 // --- REGLAGES MOTEURS ---
