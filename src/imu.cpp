@@ -1,123 +1,38 @@
 #include <Arduino.h>
 #include <Wire.h>
-#include <Adafruit_MPU6050.h>
-#include <Adafruit_Sensor.h>
+#include <MPU6050_light.h> 
 #include "imu.h"
 #include "config.h"
 
-Adafruit_MPU6050 mpu;
-
-// Variables de calibration
-float gyro_roll_cal = 0, gyro_pitch_cal = 0, gyro_yaw_cal = 0;
-float acc_roll_cal = 0, acc_pitch_cal = 0; 
+MPU6050 mpu(Wire);
 
 void imu_init() {
-    if (!mpu.begin(GYRO_ADDRESS)) {
-        Serial.println("ERREUR: MPU6050 introuvable !");
-        while (1) { delay(10); } 
+    Serial.println(F("IMU: Connexion..."));
+    byte status = mpu.begin();
+    Serial.print(F("IMU Status: ")); Serial.println(status);
+    
+    if(status != 0){
+        Serial.println(F("ERREUR IMU ! Stop."));
+        while(1) { digitalWrite(PIN_LED, !digitalRead(PIN_LED)); delay(100); }
     }
 
-    mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
-    mpu.setGyroRange(MPU6050_RANGE_500_DEG);
-    mpu.setFilterBandwidth(MPU6050_BAND_184_HZ);
-
-    Serial.println("Calibration (Ne pas bouger)...");
-    
-    long nb_samples = 2000;
-    for (int i = 0; i < nb_samples; i++) {
-        // --- MODIFICATION : Clignotement LED ---
-        // Inverse l'état de la LED tous les 50 tours (env. 5-6 Hz)
-        if (i % 50 == 0) {
-            digitalWrite(PIN_LED, !digitalRead(PIN_LED)); 
-        }
-
-        sensors_event_t a, g, temp;
-        mpu.getEvent(&a, &g, &temp);
-        
-        gyro_roll_cal += g.gyro.x;
-        gyro_pitch_cal += g.gyro.y;
-        gyro_yaw_cal += g.gyro.z;
-
-        float acc_total = sqrt(a.acceleration.x*a.acceleration.x + a.acceleration.y*a.acceleration.y + a.acceleration.z*a.acceleration.z);
-        
-        // Calibration inversée (X <-> Y) pour correspondre au vol
-        if(abs(a.acceleration.x) < acc_total) {
-            acc_pitch_cal += asin(a.acceleration.x / acc_total) * 57.296;
-        }
-        if(abs(a.acceleration.y) < acc_total) {
-            acc_roll_cal += asin(a.acceleration.y / acc_total) * 57.296;
-        }
-
-        // Affichage progression discret (un point tous les 200 samples)
-        if(i % 200 == 0) Serial.print(".");
-        delay(2);
-    }
-    
-    // --- MODIFICATION : On s'assure que la LED est éteinte à la fin ---
-    digitalWrite(PIN_LED, LOW); 
-
-    gyro_roll_cal /= nb_samples;
-    gyro_pitch_cal /= nb_samples;
-    gyro_yaw_cal /= nb_samples;
-    
-    acc_roll_cal /= nb_samples;
-    acc_pitch_cal /= nb_samples;
-
-    Serial.println(" OK");
+    Serial.println(F("IMU: Calibration (NE PAS BOUGER LE DRONE)..."));
+    digitalWrite(PIN_LED, HIGH); 
+    delay(1000);
+    mpu.calcOffsets(); 
+    digitalWrite(PIN_LED, LOW);
+    Serial.println(F("IMU: Calibration Terminee !"));
 }
 
 void imu_read(DroneState *drone) {
-    sensors_event_t a, g, temp;
-    mpu.getEvent(&a, &g, &temp);
-
-    // --- 1. GYRO (ECHANGE X <-> Y et INVERSIONS) ---
-    // Roll : Utilise Gyro Y
-    // Pitch : Utilise Gyro X
+    // 1. On met à jour le calcul interne de la librairie
+    mpu.update();
     
-    float gyro_roll = (g.gyro.y - gyro_pitch_cal) * 57.296;  
-    float gyro_pitch = (g.gyro.x - gyro_roll_cal) * 57.296;  
-    float gyro_yaw = (g.gyro.z - gyro_yaw_cal) * 57.296;
-
-    // Ajustement des signes (Selon vos tests précédents)
-    gyro_roll *= 1;   
-    gyro_pitch *= 1; 
-    gyro_yaw *= -1;
-
-    // --- MODIFICATION FILTRE : Plus réactif ---
-    // Ancien (ESP32) : 0.7 historique + 0.3 nouveau -> Trop de latence
-    // Nouveau (Recommandé) : 0.2 historique + 0.8 nouveau -> Proche de l'Arduino
-    drone->gyro_roll_input = (drone->gyro_roll_input * 0.2) + (gyro_roll * 0.8);
-    drone->gyro_pitch_input = (drone->gyro_pitch_input * 0.2) + (gyro_pitch * 0.8);
-    drone->gyro_yaw_input = (drone->gyro_yaw_input * 0.2) + (gyro_yaw * 0.8);
-
-    // 2. Integration
-    drone->angle_pitch += gyro_pitch * 0.004;
-    drone->angle_roll += gyro_roll * 0.004;
-
-    drone->angle_pitch -= drone->angle_roll * sin(gyro_yaw * 0.004 * (3.142/180));
-    drone->angle_roll += drone->angle_pitch * sin(gyro_yaw * 0.004 * (3.142/180));
-
-    // --- 3. ACCEL (ECHANGE X <-> Y) ---
-    float acc_total_vector = sqrt(a.acceleration.x*a.acceleration.x + a.acceleration.y*a.acceleration.y + a.acceleration.z*a.acceleration.z);
+    drone->angle_roll  = mpu.getAngleX(); 
+    drone->angle_pitch = -mpu.getAngleY(); 
     
-    // Poids de l'accéléromètre (Correction de dérive)
-    float acc_weight = 0.01; 
-    float gyro_weight = 0.99;
-
-    // Calcul PITCH via ACCEL X (Swap)
-    if(abs(a.acceleration.x) < acc_total_vector){
-        float angle_pitch_acc = asin(a.acceleration.x / acc_total_vector) * 57.296;
-        angle_pitch_acc -= acc_pitch_cal; 
-        
-        drone->angle_pitch = drone->angle_pitch * gyro_weight + angle_pitch_acc * acc_weight;
-    }
-    
-    // Calcul ROLL via ACCEL Y (Swap)
-    if(abs(a.acceleration.y) < acc_total_vector){
-        // Signe positif (57.296) pour corriger "Droite = descend"
-        float angle_roll_acc = asin(a.acceleration.y / acc_total_vector) * 57.296;
-        angle_roll_acc -= acc_roll_cal;
-
-        drone->angle_roll = drone->angle_roll * gyro_weight + angle_roll_acc * acc_weight;
-    }
+    // Pour le PID, on a besoin de la vitesse angulaire (Gyro pur)
+    drone->gyro_roll_input  = mpu.getGyroX();
+    drone->gyro_pitch_input = -mpu.getGyroY();
+    drone->gyro_yaw_input   = mpu.getGyroZ();
 }
