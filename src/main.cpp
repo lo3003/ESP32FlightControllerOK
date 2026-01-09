@@ -149,7 +149,7 @@ void loop() {
                 if (abs(drone.angle_roll) > 70 || abs(drone.angle_pitch) > 70) {
                     if(angle_security_timer == 0) angle_security_timer = millis();
                     
-                    if(millis() - angle_security_timer > 1000) { // Délai de tolérance (1000ms)
+                    if(millis() - angle_security_timer > 10000) { // Délai de tolérance (1000ms)
                         motors_stop();
                         drone.current_mode = MODE_SAFE;
                         error_code = 1; // 1 = CRASH ANGLE
@@ -172,7 +172,7 @@ void loop() {
                 if (drone.channel_3 < 1010) {
                     if (disarm_debounce_timer == 0) disarm_debounce_timer = millis();
                     
-                    if (millis() - disarm_debounce_timer > 1000) { // Délai tolérance (500ms)
+                    if (millis() - disarm_debounce_timer > 10000) { // Délai tolérance (10000ms)
                         drone.current_mode = MODE_ARMED; // Ou SAFE si vous préférez
                         error_code = 2; // 2 = PERTE RADIO
                         disarm_debounce_timer = 0;

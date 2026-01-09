@@ -31,15 +31,21 @@ int process_channel(int input_sbus, bool reverse) {
 }
 
 void radio_read_raw() {
-    // --- CORRECTIF LAG ---
+    // --- CORRECTIF LAG & SECURITE ---
     // Au lieu de lire un seul paquet (if), on boucle (while) pour vider le buffer.
     // Si la boucle loop() a pris du retard, plusieurs paquets S.BUS se sont empilés.
     // On les lit tous jusqu'au dernier pour avoir l'ordre le plus récent.
     
     bool new_data = false;
     while (sbus.Read()) {
+        // --- NOUVEAU : FILTRAGE FAILSAFE ---
+        // Si le paquet indique une perte de frame ou un failsafe, on l'ignore !
+        if (sbus.data().failsafe || sbus.data().lost_frame) {
+            continue; 
+        }
+
         data = sbus.data();
-        new_data = true; // On a reçu au moins un paquet frais
+        new_data = true; // On a reçu au moins un paquet frais ET VALIDE
     }
 
     if (new_data) {

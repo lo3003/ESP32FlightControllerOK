@@ -12,6 +12,9 @@ float pid_roll_d_filter_old;
 float pid_pitch_d_filter_old;
 float pid_yaw_d_filter_old;
 
+// Timer de sécurité pour ne pas resetter le I sur une micro-coupure
+static unsigned long pid_inflight_timer = 0;
+
 // --- INITIALISATION DES PARAMETRES PID ---
 // Appelé au démarrage pour charger les valeurs par défaut "No Stress"
 void pid_init_params(DroneState *drone) {
@@ -42,6 +45,7 @@ void pid_reset_integral() {
     pid_i_mem_roll = 0; pid_last_roll_input = 0; pid_roll_d_filter_old = 0;
     pid_i_mem_pitch = 0; pid_last_pitch_input = 0; pid_pitch_d_filter_old = 0;
     pid_i_mem_yaw = 0; pid_last_yaw_input = 0; pid_yaw_d_filter_old = 0;
+    pid_inflight_timer = 0; // Reset du timer
 }
 
 // --- CALCUL DES CONSIGNES (Setpoints) ---
@@ -79,16 +83,21 @@ void pid_compute_setpoints(DroneState *drone) {
 void pid_compute(DroneState *drone) {
     float d_err_raw, d_err_filtered;
     
-    // 1. DETECTION VOL (Smart Integrator)
-    // On considère qu'on vole si Throttle > 1100 (Ralenti + Marge)
-    bool in_flight = (drone->channel_3 > 1020);
+    // 1. DETECTION VOL SECURISÉE (Smart Integrator with Hysteresis)
+    // Si Throttle > 1020, on met à jour le timer "Dernière fois vu en vol"
+    if (drone->channel_3 > 1020) {
+        pid_inflight_timer = millis();
+    }
+
+    // On considère qu'on vole tant que le dernier signal valide date de moins de 500ms
+    // Cela permet de survivre à une micro-coupure radio sans reset violent du PID
+    bool in_flight = (millis() - pid_inflight_timer < 500);
 
     // 2. TPA (Throttle PID Attenuation)
     // Réduit les gains P et D quand les gaz augmentent pour éviter les oscillations
     float tpa_factor = 1.0;
     if (drone->channel_3 > 1500) {
         // Mappe 1500-2000 vers 1.0 -> 0.80 (20% de réduction à fond)
-        // Vous pouvez ajuster le 80 (plus bas = plus de réduction)
         tpa_factor = map(drone->channel_3, 1500, 2000, 100, 80) / 100.0;
     }
 
@@ -102,7 +111,7 @@ void pid_compute(DroneState *drone) {
         if(pid_i_mem_roll > PID_MAX_ROLL) pid_i_mem_roll = PID_MAX_ROLL;
         else if(pid_i_mem_roll < -PID_MAX_ROLL) pid_i_mem_roll = -PID_MAX_ROLL;
     } else {
-        pid_i_mem_roll = 0; // Reset au sol
+        pid_i_mem_roll = 0; // Reset seulement si au sol depuis > 500ms
     }
     
     // Terme D (Measurement)
