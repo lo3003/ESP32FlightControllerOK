@@ -50,6 +50,9 @@ typedef struct {
 
     int web_test_vals[5];
     unsigned long loop_time;
+    unsigned long max_time_radio;
+    unsigned long max_time_imu;
+    unsigned long max_time_pid;
 
 } DroneState;
 

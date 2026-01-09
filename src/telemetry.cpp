@@ -56,6 +56,14 @@ const char index_html[] PROGMEM = R"rawliteral(
   </div>
 
   <div class="card">
+    <h3>Diagnostic Lag (Max US)</h3>
+    <div class="val-box"><span>Radio (RX):</span> <span id="max_rad" style="color:orange">0</span></div>
+    <div class="val-box"><span>IMU (Gyro):</span> <span id="max_imu" style="color:orange">0</span></div>
+    <div class="val-box"><span>PID/Mot:</span> <span id="max_pid" style="color:orange">0</span></div>
+    <button class="btn-update" onclick="fetch('/reset_max')">RESET MAX</button>
+  </div>
+
+  <div class="card">
     <h3>Radio Monitor</h3>
     <div class="val-box"><span>Thr:</span> <span id="val_t">1000</span></div>
     <input type="range" min="1000" max="2000" class="monitor" id="rx_t" disabled>
@@ -127,16 +135,20 @@ setInterval(() => {
     let lt = data.lt;
     let el = document.getElementById("lt");
     el.innerText = lt;
-    // Changement de couleur si ça sature (> 4000)
     if(lt >= 4000) el.style.color = "red";
-    else el.style.color = "#2ecc71"; // Vert
+    else el.style.color = "#2ecc71";
+
+    // MAJ DIAGNOSTIC LAG (Nouvelles valeurs)
+    document.getElementById("max_rad").innerText = data.mr;
+    document.getElementById("max_imu").innerText = data.mi;
+    document.getElementById("max_pid").innerText = data.mp;
 
     document.getElementById("rx_t").value = data.r3; document.getElementById("val_t").innerText = data.r3;
     document.getElementById("rx_y").value = data.r4; document.getElementById("val_y").innerText = data.r4;
     document.getElementById("rx_p").value = data.r2; document.getElementById("val_p").innerText = data.r2;
     document.getElementById("rx_r").value = data.r1; document.getElementById("val_r").innerText = data.r1;
   });
-}, 200); // Rafraichissement IHM 5Hz
+}, 200); 
 
 let activeMotor = 0;
 function test(m) {
@@ -178,10 +190,23 @@ void telemetryTask(void * parameter) {
         json += "\"r2\":" + String(drone_data->channel_2) + ",";
         json += "\"r3\":" + String(drone_data->channel_3) + ",";
         json += "\"r4\":" + String(drone_data->channel_4) + ",";
-        // AJOUT DU TEMPS DE BOUCLE ICI
-        json += "\"lt\":" + String(drone_data->loop_time); 
+        json += "\"lt\":" + String(drone_data->loop_time) + ",";
+        
+        // --- ENVOI DES DIAGNOSTICS DE LAG ---
+        json += "\"mr\":" + String(drone_data->max_time_radio) + ",";
+        json += "\"mi\":" + String(drone_data->max_time_imu) + ",";
+        json += "\"mp\":" + String(drone_data->max_time_pid);
+        
         json += "}";
         request->send(200, "application/json", json);
+    });
+    
+    // --- ROUTE DE RESET DES COMPTEURS ---
+    server.on("/reset_max", HTTP_GET, [](AsyncWebServerRequest *request){
+        drone_data->max_time_radio = 0;
+        drone_data->max_time_imu = 0;
+        drone_data->max_time_pid = 0;
+        request->send(200, "text/plain", "OK");
     });
 
     server.on("/get_pid", HTTP_GET, [](AsyncWebServerRequest *request){

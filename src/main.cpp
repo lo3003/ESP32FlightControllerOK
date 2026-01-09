@@ -21,6 +21,12 @@ void setup() {
     Wire.begin();
     Wire.setClock(I2C_SPEED);
     
+    // --- CORRECTIF ANTI-FREEZE I2C ---
+    // Empêche la boucle de bloquer 50ms si le gyroscope rate un paquet.
+    // Timeout réduit à 1ms.
+    Wire.setTimeOut(1); 
+    // ---------------------------------
+    
     pinMode(PIN_LED, OUTPUT);
     
     // 1. INIT MOTEURS
@@ -33,7 +39,6 @@ void setup() {
     motors_write_direct(2000, 2000, 2000, 2000);
 
     // 3. DEMARRAGE TÂCHE TELEMETRIE (WIFI)
-    // Indispensable pour voir le Loop Time sur le Web
     start_telemetry_task(&drone); 
 
     // On attend un signal valide. Pendant ce temps, les ESC sont en attente "Max Throttle"
@@ -61,12 +66,22 @@ void setup() {
         pid_init_params(&drone);
     }
     
+    // Initialisation des compteurs de diag
+    drone.max_time_radio = 0;
+    drone.max_time_imu = 0;
+    drone.max_time_pid = 0;
+    
     loop_timer = micros();
 }
 
 void loop() {
-    // 1. Mise à jour Radio
+    // --- 1. DEBUT MESURE TEMPS ---
+    unsigned long t_start = micros();
+
+    // Mise à jour Radio (Toujours faite)
     radio_update(&drone);
+    
+    unsigned long t_radio = micros(); // Fin mesure Radio
 
     // 2. Gestion LED Erreur
     if (error_code > 0) {
@@ -77,21 +92,21 @@ void loop() {
         digitalWrite(PIN_LED, HIGH); // Fixe en SAFE
     }
 
-
     if(drone.current_mode == MODE_CALIBRATION) {
         esc_calibrate_loop(&drone);
     } 
     else {
         // Lecture IMU
         imu_read(&drone);
+        
+        unsigned long t_imu = micros(); // Fin mesure IMU
 
         switch(drone.current_mode) {
             // ---------------- MODE SAFE ----------------
             case MODE_SAFE:
                 motors_stop();
                 
-                // ARMEMENTS : Gaz Bas + Yaw Gauche (Stick gauche dans le coin bas-gauche)
-                // Ou simplement Gaz < 1010 et Yaw < 1200
+                // ARMEMENTS : Gaz Bas + Yaw Gauche
                 if(drone.channel_3 < 1010 && drone.channel_4 < 1200) {
                      if(arming_timer == 0) arming_timer = millis();
                      else if(millis() - arming_timer > 1000) {
@@ -132,33 +147,29 @@ void loop() {
             case MODE_FLYING:
                 digitalWrite(PIN_LED, LOW); 
 
-                // --- 1. INTELLIGENCE DE VOL ---
+                // --- INTELLIGENCE DE VOL ---
                 pid_compute_setpoints(&drone);
                 pid_compute(&drone);
                 motors_mix(&drone);
                 motors_write();
                 
-                // --- 2. DESARMEMENT MANUEL D'URGENCE (AJOUT) ---
-                // Si Gaz < 1010 ET Yaw à Droite (> 1800) pendant 1 seconde
+                // --- DESARMEMENT MANUEL D'URGENCE ---
                 if(drone.channel_3 < 1010 && drone.channel_4 > 1800) {
                      if(arming_timer == 0) arming_timer = millis();
                      else if(millis() - arming_timer > 1000) {
                         drone.current_mode = MODE_SAFE;
-                        motors_stop(); // Coupure immédiate
+                        motors_stop(); 
                         arming_timer = 0;
                      }
                 } else { 
-                    // Si on ne fait pas la combinaison, on reset le timer manuel
-                    // On ne touche pas au timer disarm_debounce_timer ci-dessous
                     arming_timer = 0; 
                 }
 
-                // --- 3. SECURITE RADIO / AUTOLANDING ---
-                // Si Gaz < 1010 (sans toucher au Yaw) pendant 60s
+                // --- SECURITE RADIO / AUTOLANDING ---
                 if (drone.channel_3 < 1010) {
                     if (disarm_debounce_timer == 0) disarm_debounce_timer = millis();
                     
-                    if (millis() - disarm_debounce_timer > 60000) { // 60 secondes pour test banc
+                    if (millis() - disarm_debounce_timer > 60000) { 
                         drone.current_mode = MODE_ARMED; 
                         error_code = 2; // PERTE RADIO
                         disarm_debounce_timer = 0;
@@ -166,10 +177,6 @@ void loop() {
                 } else {
                     disarm_debounce_timer = 0; 
                 }
-                
-                /* // Bloc Crash Angle désactivé pour vos tests
-                if (abs(drone.angle_roll) > 70 || abs(drone.angle_pitch) > 70) { ... }
-                */
                 break;
 
             case MODE_WEB_TEST:
@@ -184,15 +191,28 @@ void loop() {
                 }
                 break;
         }
+
+        // --- DIAGNOSTIC LAG (BOÎTE NOIRE) ---
+        unsigned long t_end = micros();
+        unsigned long dur_radio = t_radio - t_start;
+        unsigned long dur_imu = t_imu - t_radio;
+        unsigned long dur_pid_mix = t_end - t_imu;
+        unsigned long total_loop = t_end - t_start;
+
+        drone.loop_time = total_loop; 
+        
+        // Si on détecte un gros lag (> 6000us), on enregistre le coupable
+        if (total_loop > 6000) {
+            if(dur_radio > drone.max_time_radio) drone.max_time_radio = dur_radio;
+            if(dur_imu > drone.max_time_imu)     drone.max_time_imu = dur_imu;
+            if(dur_pid_mix > drone.max_time_pid) drone.max_time_pid = dur_pid_mix;
+        }
     }
 
-    // Gestion Loop Time
+    // Gestion Loop Time constant
     unsigned long time_used = micros() - loop_timer;
     
-    // --- ENVOI VERS TELEMETRIE ---
-    drone.loop_time = time_used; 
-    // -----------------------------
-
+    // Si on est en avance, on attend
     if (time_used < LOOP_TIME_US) {
         if (LOOP_TIME_US - time_used > 2000) delay(1);
         while(micros() - loop_timer < LOOP_TIME_US);
