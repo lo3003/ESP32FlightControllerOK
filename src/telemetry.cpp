@@ -7,7 +7,7 @@
 #include "motors.h"
 #include "types.h"
 
-const char* ssid = "Drone_ESP32"; 
+const char* ssid = "Drone_ESP32";
 const char* password = "password123";
 
 DroneState* drone_data;
@@ -31,15 +31,13 @@ const char index_html[] PROGMEM = R"rawliteral(
     .pid-row { display: flex; justify-content: space-between; align-items: center; margin: 5px 0; }
     label { width: 50px; text-align: left; }
     
-    /* Styles Test Moteur */
     .grid-2 { display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:10px; }
     .btn-test { background: #444; color: white; border: 1px solid #666; padding: 10px; border-radius: 5px; cursor: pointer; }
     .active-btn { background: #00d2ff; color: black; font-weight: bold; }
 
-    /* NOUVEAU : Styles pour les Sliders Radio (Moniteur) */
-    input[type=range].monitor { 
+    input[type=range].monitor {
         width: 100%; -webkit-appearance: none; height: 8px; background: #555; border-radius: 5px; outline: none; margin-top:5px;
-        opacity: 0.8; /* Un peu transparent pour montrer que c'est de la lecture seule */
+        opacity: 0.8;
     }
     input[type=range].monitor::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 15px; height: 15px; border-radius: 50%; background: #f1c40f; }
   </style>
@@ -48,53 +46,49 @@ const char index_html[] PROGMEM = R"rawliteral(
   <h2>MonDrone Tuning</h2>
 
   <div class="card">
-    <h3>Radio Monitor (Input)</h3>
-    
-    <div class="val-box"><span>Throttle (3):</span> <span id="val_t">1000</span></div>
+    <h3>État & Debug</h3>
+    <div class="val-box"><span>Roll:</span> <span id="ar">0.0</span>°</div>
+    <div class="val-box"><span>Pitch:</span> <span id="ap">0.0</span>°</div>
+    <div class="val-box" style="border-top:1px solid #555; margin-top:5px; padding-top:5px;">
+        <span>Loop Time (us):</span> <span id="lt" style="color:#e74c3c">0</span>
+    </div>
+    <div style="font-size:10px; color:#aaa;">Target: < 4000us</div>
+  </div>
+
+  <div class="card">
+    <h3>Radio Monitor</h3>
+    <div class="val-box"><span>Thr:</span> <span id="val_t">1000</span></div>
     <input type="range" min="1000" max="2000" class="monitor" id="rx_t" disabled>
-
-    <div class="val-box"><span>Yaw (4):</span> <span id="val_y">1500</span></div>
+    <div class="val-box"><span>Yaw:</span> <span id="val_y">1500</span></div>
     <input type="range" min="1000" max="2000" class="monitor" id="rx_y" disabled>
-
-    <div class="val-box"><span>Pitch (2):</span> <span id="val_p">1500</span></div>
+    <div class="val-box"><span>Pit:</span> <span id="val_p">1500</span></div>
     <input type="range" min="1000" max="2000" class="monitor" id="rx_p" disabled>
-
-    <div class="val-box"><span>Roll (1):</span> <span id="val_r">1500</span></div>
+    <div class="val-box"><span>Rol:</span> <span id="val_r">1500</span></div>
     <input type="range" min="1000" max="2000" class="monitor" id="rx_r" disabled>
   </div>
 
   <div class="card">
     <h3>PID Réglages</h3>
-    
     <div style="text-align:left; font-weight:bold; color:#aaa; margin-bottom:5px;">Pitch / Roll</div>
     <div class="pid-row"><label>P</label> <input type="number" step="0.1" id="ppr"></div>
     <div class="pid-row"><label>I</label> <input type="number" step="0.01" id="ipr"></div>
     <div class="pid-row"><label>D</label> <input type="number" step="1.0" id="dpr"></div>
-
     <div style="text-align:left; font-weight:bold; color:#aaa; margin:10px 0 5px 0;">Yaw</div>
     <div class="pid-row"><label>P</label> <input type="number" step="0.1" id="py"></div>
     <div class="pid-row"><label>I</label> <input type="number" step="0.01" id="iy"></div>
     <div class="pid-row"><label>D</label> <input type="number" step="1.0" id="dy"></div>
-
     <div style="text-align:left; font-weight:bold; color:#aaa; margin:10px 0 5px 0;">Auto Level</div>
     <div class="pid-row"><label>Level P</label> <input type="number" step="1.0" id="pl"></div>
-
     <button class="btn-update" onclick="sendPID()">METTRE A JOUR PID</button>
   </div>
 
   <div class="card">
-    <h3>État</h3>
-    <div class="val-box"><span>Roll:</span> <span id="ar">0.0</span>°</div>
-    <div class="val-box"><span>Pitch:</span> <span id="ap">0.0</span>°</div>
-  </div>
-
-  <div class="card">
-    <h3>Test Moteurs (NO PROPS)</h3>
+    <h3>Test Moteurs</h3>
     <div class="grid-2">
-      <button id="btn1" class="btn-test" onclick="test(1)">M1 (AvD)</button>
-      <button id="btn2" class="btn-test" onclick="test(2)">M2 (ArD)</button>
-      <button id="btn3" class="btn-test" onclick="test(3)">M3 (ArG)</button>
-      <button id="btn4" class="btn-test" onclick="test(4)">M4 (AvG)</button>
+      <button id="btn1" class="btn-test" onclick="test(1)">M1</button>
+      <button id="btn2" class="btn-test" onclick="test(2)">M2</button>
+      <button id="btn3" class="btn-test" onclick="test(3)">M3</button>
+      <button id="btn4" class="btn-test" onclick="test(4)">M4</button>
     </div>
     <input type="range" min="1000" max="1300" value="1000" id="slider" oninput="updateVal(this.value)" style="width:100%">
     <div id="sliderVal">1000</div>
@@ -102,7 +96,6 @@ const char index_html[] PROGMEM = R"rawliteral(
   </div>
 
 <script>
-// --- PID LOGIC ---
 function loadPID() {
     fetch('/get_pid').then(res => res.json()).then(data => {
         document.getElementById('ppr').value = data.ppr;
@@ -114,7 +107,6 @@ function loadPID() {
         document.getElementById('pl').value = data.pl;
     });
 }
-
 function sendPID() {
     let ppr = document.getElementById('ppr').value;
     let ipr = document.getElementById('ipr').value;
@@ -123,34 +115,29 @@ function sendPID() {
     let iy = document.getElementById('iy').value;
     let dy = document.getElementById('dy').value;
     let pl = document.getElementById('pl').value;
-    
-    fetch(`/set_pid?ppr=${ppr}&ipr=${ipr}&dpr=${dpr}&py=${py}&iy=${iy}&dy=${dy}&pl=${pl}`)
-    .then(res => alert("PID Mis à jour !"));
+    fetch(`/set_pid?ppr=${ppr}&ipr=${ipr}&dpr=${dpr}&py=${py}&iy=${iy}&dy=${dy}&pl=${pl}`).then(res => alert("OK"));
 }
 
-// --- TELEMETRY ---
 setInterval(() => {
   fetch('/data').then(res => res.json()).then(data => {
-    // Mise à jour ETAT
     document.getElementById("ar").innerText = data.ar.toFixed(1);
     document.getElementById("ap").innerText = data.ap.toFixed(1);
     
-    // Mise à jour RADIO MONITOR (Nouveau)
-    document.getElementById("rx_t").value = data.r3; // Thr
-    document.getElementById("val_t").innerText = data.r3;
-    
-    document.getElementById("rx_y").value = data.r4; // Yaw
-    document.getElementById("val_y").innerText = data.r4;
-    
-    document.getElementById("rx_p").value = data.r2; // Pitch
-    document.getElementById("val_p").innerText = data.r2;
-    
-    document.getElementById("rx_r").value = data.r1; // Roll
-    document.getElementById("val_r").innerText = data.r1;
-  });
-}, 200);
+    // MAJ LOOP TIME
+    let lt = data.lt;
+    let el = document.getElementById("lt");
+    el.innerText = lt;
+    // Changement de couleur si ça sature (> 4000)
+    if(lt >= 4000) el.style.color = "red";
+    else el.style.color = "#2ecc71"; // Vert
 
-// --- MOTOR TEST ---
+    document.getElementById("rx_t").value = data.r3; document.getElementById("val_t").innerText = data.r3;
+    document.getElementById("rx_y").value = data.r4; document.getElementById("val_y").innerText = data.r4;
+    document.getElementById("rx_p").value = data.r2; document.getElementById("val_p").innerText = data.r2;
+    document.getElementById("rx_r").value = data.r1; document.getElementById("val_r").innerText = data.r1;
+  });
+}, 200); // Rafraichissement IHM 5Hz
+
 let activeMotor = 0;
 function test(m) {
     activeMotor = m;
@@ -169,8 +156,6 @@ function stopAll() {
     document.getElementById("slider").value = 1000;
     fetch('/stop');
 }
-
-// Init
 window.onload = loadPID;
 </script>
 </body>
@@ -185,24 +170,20 @@ void telemetryTask(void * parameter) {
         request->send_P(200, "text/html", index_html);
     });
 
-    // Envoi des données JSON pour l'affichage temps réel
     server.on("/data", HTTP_GET, [](AsyncWebServerRequest *request){
         String json = "{";
-        // ETAT DRONE
         json += "\"ar\":" + String(drone_data->angle_roll) + ",";
         json += "\"ap\":" + String(drone_data->angle_pitch) + ",";
-        
-        // RADIO RAW (Ajouté ici pour les sliders)
-        json += "\"r1\":" + String(drone_data->channel_1) + ","; // Roll
-        json += "\"r2\":" + String(drone_data->channel_2) + ","; // Pitch
-        json += "\"r3\":" + String(drone_data->channel_3) + ","; // Throttle
-        json += "\"r4\":" + String(drone_data->channel_4);       // Yaw
-        
+        json += "\"r1\":" + String(drone_data->channel_1) + ",";
+        json += "\"r2\":" + String(drone_data->channel_2) + ",";
+        json += "\"r3\":" + String(drone_data->channel_3) + ",";
+        json += "\"r4\":" + String(drone_data->channel_4) + ",";
+        // AJOUT DU TEMPS DE BOUCLE ICI
+        json += "\"lt\":" + String(drone_data->loop_time); 
         json += "}";
         request->send(200, "application/json", json);
     });
 
-    // --- API PID ---
     server.on("/get_pid", HTTP_GET, [](AsyncWebServerRequest *request){
         String json = "{";
         json += "\"ppr\":" + String(drone_data->p_pitch_roll) + ",";
@@ -216,22 +197,17 @@ void telemetryTask(void * parameter) {
         request->send(200, "application/json", json);
     });
 
-    // 2. Mettre à jour les PID
     server.on("/set_pid", HTTP_GET, [](AsyncWebServerRequest *request){
         if(request->hasParam("ppr")) drone_data->p_pitch_roll = request->getParam("ppr")->value().toFloat();
         if(request->hasParam("ipr")) drone_data->i_pitch_roll = request->getParam("ipr")->value().toFloat();
         if(request->hasParam("dpr")) drone_data->d_pitch_roll = request->getParam("dpr")->value().toFloat();
-        
         if(request->hasParam("py")) drone_data->p_yaw = request->getParam("py")->value().toFloat();
         if(request->hasParam("iy")) drone_data->i_yaw = request->getParam("iy")->value().toFloat();
         if(request->hasParam("dy")) drone_data->d_yaw = request->getParam("dy")->value().toFloat();
-
         if(request->hasParam("pl")) drone_data->p_level = request->getParam("pl")->value().toFloat();
-
         request->send(200, "text/plain", "OK");
     });
 
-    // --- MOTEURS ---
     server.on("/motor", HTTP_GET, [](AsyncWebServerRequest *request){
         if(request->hasParam("m") && request->hasParam("val")) {
             int m = request->getParam("m")->value().toInt();

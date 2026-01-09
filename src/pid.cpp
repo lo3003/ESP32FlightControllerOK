@@ -20,7 +20,7 @@ static unsigned long pid_inflight_timer = 0;
 void pid_init_params(DroneState *drone) {
     // ROLL
     drone->p_pitch_roll = 1.5;   // Doux
-    drone->i_pitch_roll = 0.015;  // Faible pour éviter le windup au début
+    drone->i_pitch_roll = 0;  // Faible pour éviter le windup au début
     drone->d_pitch_roll = 5.0;   // Amortissement
 
     // PITCH (Copie du Roll)

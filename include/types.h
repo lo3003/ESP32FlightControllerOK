@@ -49,6 +49,7 @@ typedef struct {
     float p_level; // Force de l'auto-stabilisation
 
     int web_test_vals[5];
+    unsigned long loop_time;
 
 } DroneState;
 
