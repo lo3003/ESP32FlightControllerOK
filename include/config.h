@@ -43,4 +43,11 @@
 
 #define LOOP_TIME_US   4000 
 
+// --- IMU Calibration tuning ---
+#define IMU_CALIB_SETTLE_MS     200     // temps après config (stabilisation capteur)
+#define IMU_CALIB_DISCARD       50      // lectures jetées au début
+#define IMU_CALIB_SAMPLES       1500    // échantillons utiles (plus = plus stable)
+#define IMU_CALIB_DELAY_US      2000    // spacing entre échantillons
+#define IMU_CALIB_STD_MAX_RAW   8.0f    // seuil "ça bouge" (en unités brutes gyro)
+
 #endif

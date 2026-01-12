@@ -20,20 +20,13 @@ void setup() {
     Serial.begin(115200);
     Wire.begin();
     Wire.setClock(I2C_SPEED);
-    
-    // --- CORRECTIF ANTI-FREEZE I2C ---
-    // Empêche la boucle de bloquer 50ms si le gyroscope rate un paquet.
-    // Timeout réduit à 1ms.
-    Wire.setTimeOut(1); 
-    // ---------------------------------
-    
+    Wire.setTimeOut(1);
+
     pinMode(PIN_LED, OUTPUT);
-    
-    // 1. INIT MOTEURS
-    motors_init(); 
-    
-    // 2. Init Radio
+
+    motors_init();
     radio_init();
+    radio_start_task(); // <-- AJOUT: radio indépendante de la loop()
 
     // Pour l'initialisation, on envoie 2000 aux ESC (Procédure standard)
     motors_write_direct(2000, 2000, 2000, 2000);
@@ -53,19 +46,19 @@ void setup() {
 
     // 4. DECISION SELON LE STICK
     if(drone.channel_3 > 1900) {
-        // Le stick est vraiment en haut -> On continue la Calibration ESC
         drone.current_mode = MODE_CALIBRATION;
         esc_calibrate_init();
     } else {
-        // Le stick est en bas -> Démarrage normal
-        motors_stop(); 
-        
+        motors_stop();
         drone.current_mode = MODE_SAFE;
-        imu_init(); 
+
+        imu_init();
+        imu_start_task();      // <-- AJOUT: IMU sur tâche FreeRTOS
+
         pid_init();
         pid_init_params(&drone);
     }
-    
+
     // Initialisation des compteurs de diag
     drone.max_time_radio = 0;
     drone.max_time_imu = 0;
@@ -75,13 +68,10 @@ void setup() {
 }
 
 void loop() {
-    // --- 1. DEBUT MESURE TEMPS ---
     unsigned long t_start = micros();
 
-    // Mise à jour Radio (Toujours faite)
     radio_update(&drone);
-    
-    unsigned long t_radio = micros(); // Fin mesure Radio
+    unsigned long t_radio = micros();
 
     // 2. Gestion LED Erreur
     if (error_code > 0) {
@@ -94,12 +84,14 @@ void loop() {
 
     if(drone.current_mode == MODE_CALIBRATION) {
         esc_calibrate_loop(&drone);
-    } 
-    else {
-        // Lecture IMU
-        imu_read(&drone);
-        
-        unsigned long t_imu = micros(); // Fin mesure IMU
+    } else {
+        // Au lieu de bloquer sur I2C ici:
+        // imu_read(&drone);
+
+        unsigned long t_imu_start = micros();
+        imu_update(&drone);  // <-- snapshot non-bloquant
+        unsigned long t_imu = micros();
+        (void)t_imu_start;   // durée “loop” IMU n’a plus de sens; drone.current_time_imu vient de la task
 
         switch(drone.current_mode) {
             // ---------------- MODE SAFE ----------------
@@ -114,7 +106,9 @@ void loop() {
                         arming_timer = 0;
                         error_code = 0; // Reset erreurs
                         pid_reset_integral();
-                        drone.angle_pitch = 0; drone.angle_roll = 0;
+                        drone.angle_pitch = 0; 
+                        drone.angle_roll = 0;
+                        imu_request_reset();      // <-- AJOUT (très important)
                         loop_timer = micros();
                      }
                 } else { arming_timer = 0; }
@@ -202,9 +196,10 @@ void loop() {
         drone.loop_time = total_loop; 
         
         // Si on détecte un gros lag (> 6000us), on enregistre le coupable
+        // MAIS on évite d'overwrite le code d'erreur 888888 (IMU CRASH)
         if (total_loop > 6000) {
             if(dur_radio > drone.max_time_radio) drone.max_time_radio = dur_radio;
-            if(dur_imu > drone.max_time_imu)     drone.max_time_imu = dur_imu;
+            if(drone.max_time_imu != 888888 && dur_imu > drone.max_time_imu) drone.max_time_imu = dur_imu;
             if(dur_pid_mix > drone.max_time_pid) drone.max_time_pid = dur_pid_mix;
         }
     }

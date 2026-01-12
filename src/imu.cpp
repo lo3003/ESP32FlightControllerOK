@@ -2,54 +2,80 @@
 #include <Wire.h>
 #include "imu.h"
 #include "config.h"
-#include "motors.h" 
+#include "motors.h"
 
-// Variables globales internes pour les offsets
-double gyro_off_x = 0;
-double gyro_off_y = 0;
-double gyro_off_z = 0;
+// --- FreeRTOS ---
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
-// Variables brutes
-int16_t acc_raw[3];
-int16_t gyro_raw[3];
-int16_t temperature;
+// --- Offsets calibration ---
+static double gyro_off_x = 0;
+static double gyro_off_y = 0;
+static double gyro_off_z = 0;
 
+// --- Variables brutes ---
+static int16_t acc_raw[3];
+static int16_t gyro_raw[3];
+static int16_t temperature;
+
+// ==================== SNAPSHOT IMU (partagé task <-> loop) ====================
+typedef struct {
+    float gyro_roll_input;
+    float gyro_pitch_input;
+    float gyro_yaw_input;
+    float angle_roll;
+    float angle_pitch;
+    float acc_total_vector;
+    unsigned long last_dur_us;
+    unsigned long last_ok_ms;
+    bool ok;
+} ImuSnapshot;
+
+static portMUX_TYPE imu_mux = portMUX_INITIALIZER_UNLOCKED;
+static ImuSnapshot imu_snap = {0};
+
+// Inputs depuis la loop vers la task
+static volatile FlightMode imu_in_mode = MODE_SAFE;
+static volatile int imu_in_ch3 = 1000;
+static volatile bool imu_reset_req = false;
+
+// État interne du filtre (vit dans la task, pas dans la loop)
+static DroneState imu_state;
+
+static TaskHandle_t imu_task_handle = nullptr;
+
+// ==================== IMU INIT (bloquant, appelé avant task) ====================
 void imu_init() {
-    // Sécurité moteurs au démarrage
     motors_write_direct(1000, 1000, 1000, 1000);
 
     Serial.println(F("IMU: Init Raw I2C..."));
-    
-    // 1. Réveil & Config du MPU6050
+
+    // Réveil & Config MPU6050
     Wire.beginTransmission(MPU_ADDR); Wire.write(0x6B); Wire.write(0x00); Wire.endTransmission();
     Wire.beginTransmission(MPU_ADDR); Wire.write(0x1B); Wire.write(0x08); Wire.endTransmission(); // 500 dps
     Wire.beginTransmission(MPU_ADDR); Wire.write(0x1C); Wire.write(0x10); Wire.endTransmission(); // +/- 8g
-    Wire.beginTransmission(MPU_ADDR); Wire.write(0x1A); Wire.write(0x03); Wire.endTransmission(); // 42Hz Filter (Standard)
+    Wire.beginTransmission(MPU_ADDR); Wire.write(0x1A); Wire.write(0x03); Wire.endTransmission(); // 42Hz Filter
 
     Serial.println(F("IMU: Calib Gyro (1000 samples)..."));
     digitalWrite(PIN_LED, HIGH);
 
-    // 2. CALIBRATION GYRO (RAM)
     long gyro_sum_x = 0, gyro_sum_y = 0, gyro_sum_z = 0;
 
-    for (int i = 0; i < 1000 ; i++){
+    for (int i = 0; i < 1000; i++) {
         Wire.beginTransmission(MPU_ADDR);
         Wire.write(0x43);
         Wire.endTransmission();
         Wire.requestFrom(MPU_ADDR, 6);
-        
-        // Attente active sécurisée
-        if(Wire.available() < 6) { delay(2); continue; }
-        
-        // Lecture et somme
-        gyro_sum_x += (int16_t)(Wire.read()<<8|Wire.read());
-        gyro_sum_y += (int16_t)(Wire.read()<<8|Wire.read());
-        gyro_sum_z += (int16_t)(Wire.read()<<8|Wire.read());
-        
-        delayMicroseconds(2000); 
+
+        if (Wire.available() < 6) { delay(2); continue; }
+
+        gyro_sum_x += (int16_t)(Wire.read() << 8 | Wire.read());
+        gyro_sum_y += (int16_t)(Wire.read() << 8 | Wire.read());
+        gyro_sum_z += (int16_t)(Wire.read() << 8 | Wire.read());
+
+        delayMicroseconds(2000);
     }
 
-    // Calcul des moyennes (Offsets)
     gyro_off_x = gyro_sum_x / 1000.0;
     gyro_off_y = gyro_sum_y / 1000.0;
     gyro_off_z = gyro_sum_z / 1000.0;
@@ -58,96 +84,198 @@ void imu_init() {
     Serial.println(F("IMU: Calibration OK"));
 }
 
-void imu_read(DroneState *drone) {
-    // 1. Demande lecture Brute (Acc + Temp + Gyro = 14 octets)
+// ==================== IMU READ (appelé par la task, PAS par la loop) ====================
+static void imu_read_internal(DroneState *drone) {
+    // --- dt réel (FreeRTOS = pas parfaitement 4ms) ---
+    static unsigned long last_us = 0;
+    const unsigned long now_us = micros();
+    float dt_s = 0.004f;
+    if (last_us != 0) {
+        dt_s = (now_us - last_us) * 1e-6f;
+        if (dt_s < 0.002f) dt_s = 0.002f;
+        if (dt_s > 0.010f) dt_s = 0.010f;
+    }
+    last_us = now_us;
+
     Wire.beginTransmission(MPU_ADDR);
     Wire.write(0x3B);
     Wire.endTransmission();
-    
+
     uint8_t count = Wire.requestFrom(MPU_ADDR, 14);
 
-    // --- SECURITE ANTI-CRASH (I2C FREEZE) ---
-    // Si on a reçu moins de 14 octets, c'est que le bus I2C a planté.
-    // On quitte immédiatement pour ne pas lire de données corrompues.
-    if(count < 14) { 
-        // On signale l'erreur dans la variable de diagnostic pour le voir dans l'interface Web
-        // (Valeur arbitraire > 10000 signifiant "ERREUR HARDWARE")
-        drone->max_time_imu = 888888; 
-        return; 
+    if (count < 14) {
+        drone->max_time_imu = 888888;
+        return;
     }
-    
-    // 2. Lecture des registres (Si tout va bien)
-    acc_raw[0] = (int16_t)(Wire.read()<<8|Wire.read()); // Acc X
-    acc_raw[1] = (int16_t)(Wire.read()<<8|Wire.read()); // Acc Y
-    acc_raw[2] = (int16_t)(Wire.read()<<8|Wire.read()); // Acc Z
-    temperature = (int16_t)(Wire.read()<<8|Wire.read());
-    gyro_raw[0] = (int16_t)(Wire.read()<<8|Wire.read()); // Gyro X
-    gyro_raw[1] = (int16_t)(Wire.read()<<8|Wire.read()); // Gyro Y
-    gyro_raw[2] = (int16_t)(Wire.read()<<8|Wire.read()); // Gyro Z
 
-    // 3. Application des Offsets (Calibration)
+    acc_raw[0] = (int16_t)(Wire.read() << 8 | Wire.read());
+    acc_raw[1] = (int16_t)(Wire.read() << 8 | Wire.read());
+    acc_raw[2] = (int16_t)(Wire.read() << 8 | Wire.read());
+    temperature = (int16_t)(Wire.read() << 8 | Wire.read());
+    gyro_raw[0] = (int16_t)(Wire.read() << 8 | Wire.read());
+    gyro_raw[1] = (int16_t)(Wire.read() << 8 | Wire.read());
+    gyro_raw[2] = (int16_t)(Wire.read() << 8 | Wire.read());
+
     double gyro_x_cal = gyro_raw[0] - gyro_off_x;
     double gyro_y_cal = gyro_raw[1] - gyro_off_y;
     double gyro_z_cal = gyro_raw[2] - gyro_off_z;
 
-    // =========================================================
-    // 4. MAPPING AXES (Adapté à la position physique du capteur)
-    // =========================================================
-    
-    // ROLL : Rotation autour de X
-    double gyro_roll  = gyro_x_cal; 
-    long acc_roll_val = acc_raw[1]; // Accel Y
+    double gyro_roll  = gyro_x_cal;
+    long acc_roll_val = acc_raw[1];
 
-    // PITCH : Rotation autour de Y (Inversé selon convention)
-    double gyro_pitch = -gyro_y_cal; 
-    long acc_pitch_val = acc_raw[0]; // Accel X
+    double gyro_pitch = -gyro_y_cal;
+    long acc_pitch_val = acc_raw[0];
 
-    // YAW : Rotation autour de Z
-    double gyro_yaw   = gyro_z_cal; 
-    long acc_yaw_val  = acc_raw[2]; // Accel Z
+    double gyro_yaw   = gyro_z_cal;
+    long acc_yaw_val  = acc_raw[2];
 
-    // 5. Conversion Échelle (LSB vers Degrés/seconde)
-    // Pour 500dps, l'échelle est 65.5 LSB/°/s
-    float gyro_scale = 65.5; 
-    
-    drone->gyro_roll_input  = (gyro_roll / gyro_scale);
-    drone->gyro_pitch_input = (gyro_pitch / gyro_scale);
-    drone->gyro_yaw_input   = (gyro_yaw / gyro_scale);
+    const float gyro_scale = 65.5f;
 
-    // 6. Calcul Angle (Filtre Complémentaire)
-    // Intégration Gyro
-    drone->angle_pitch += gyro_pitch * GYRO_COEFF;
-    drone->angle_roll  += gyro_roll * GYRO_COEFF;
+    drone->gyro_roll_input  = (float)(gyro_roll / gyro_scale);
+    drone->gyro_pitch_input = (float)(gyro_pitch / gyro_scale);
+    drone->gyro_yaw_input   = (float)(gyro_yaw / gyro_scale);
 
-    // Compensation Yaw (Transfet d'angle quand on tourne sur le lacet)
-    drone->angle_pitch -= drone->angle_roll * sin(gyro_yaw * 0.000001066);
-    drone->angle_roll  += drone->angle_pitch * sin(gyro_yaw * 0.000001066);
+    // Intégration avec dt réel
+    const float coeff = dt_s / gyro_scale;
+    const float yaw_rad = (float)(gyro_yaw) * coeff * (PI / 180.0f);
 
-    // Calcul Vecteur Accélération Totale
-    drone->acc_total_vector = sqrt((acc_roll_val*acc_roll_val)+(acc_pitch_val*acc_pitch_val)+(acc_yaw_val*acc_yaw_val));
+    drone->angle_pitch += (float)(gyro_pitch) * coeff;
+    drone->angle_roll  += (float)(gyro_roll)  * coeff;
 
-    // Calcul Angles Accéléromètre (Correction de dérive)
+    drone->angle_pitch -= drone->angle_roll  * sinf(yaw_rad);
+    drone->angle_roll  += drone->angle_pitch * sinf(yaw_rad);
+
+    drone->acc_total_vector = sqrtf((float)(acc_roll_val * acc_roll_val) +
+                                    (float)(acc_pitch_val * acc_pitch_val) +
+                                    (float)(acc_yaw_val * acc_yaw_val));
+
     float angle_pitch_acc = 0, angle_roll_acc = 0;
-    
-    if(abs(acc_pitch_val) < drone->acc_total_vector){
-        angle_pitch_acc = asin((float)acc_pitch_val / drone->acc_total_vector) * RAD_TO_DEG;
+
+    if (fabsf((float)acc_pitch_val) < drone->acc_total_vector) {
+        angle_pitch_acc = asinf((float)acc_pitch_val / drone->acc_total_vector) * RAD_TO_DEG;
     }
-    if(abs(acc_roll_val) < drone->acc_total_vector){
-        angle_roll_acc = asin((float)acc_roll_val / drone->acc_total_vector) * RAD_TO_DEG;
+    if (fabsf((float)acc_roll_val) < drone->acc_total_vector) {
+        angle_roll_acc = asinf((float)acc_roll_val / drone->acc_total_vector) * RAD_TO_DEG;
     }
 
-    // Ajustement fin (Trim Accéléromètre) - A ajuster selon votre niveau à bulle
-    angle_roll_acc  += 3.0; // Correction mécanique
-    angle_pitch_acc += -6.0; 
+    // Trim mécanique
+    angle_roll_acc  += 3.0f;
+    angle_pitch_acc += -6.0f;
 
-    // 7. Fusion Gyro + Accel
+    // Fusion
     if (drone->current_mode == MODE_SAFE && drone->channel_3 < 1050) {
-        // Au sol : On fait confiance à l'accéléromètre pour s'aligner vite
-        drone->angle_pitch = drone->angle_pitch * 0.90 + angle_pitch_acc * 0.10;
-        drone->angle_roll  = drone->angle_roll  * 0.90 + angle_roll_acc  * 0.10;
+        drone->angle_pitch = drone->angle_pitch * 0.90f + angle_pitch_acc * 0.10f;
+        drone->angle_roll  = drone->angle_roll  * 0.90f + angle_roll_acc  * 0.10f;
     } else {
-        // En vol : On fait confiance au Gyro (Filtre Complémentaire standard)
-        drone->angle_pitch = drone->angle_pitch * 0.9996 + angle_pitch_acc * 0.0004;
-        drone->angle_roll  = drone->angle_roll  * 0.9996 + angle_roll_acc  * 0.0004;
+        drone->angle_pitch = drone->angle_pitch * 0.9996f + angle_pitch_acc * 0.0004f;
+        drone->angle_roll  = drone->angle_roll  * 0.9996f + angle_roll_acc  * 0.0004f;
     }
+}
+
+// ==================== TASK IMU (tourne sur core 0) ====================
+static void imu_task(void *parameter) {
+    (void)parameter;
+
+    memset(&imu_state, 0, sizeof(imu_state));
+    imu_state.current_mode = MODE_SAFE;
+    imu_state.channel_3 = 1000;
+
+    TickType_t last_wake = xTaskGetTickCount();
+
+    for (;;) {
+        FlightMode m;
+        int ch3;
+        bool do_reset = false;
+
+        portENTER_CRITICAL(&imu_mux);
+        m = imu_in_mode;
+        ch3 = imu_in_ch3;
+        if (imu_reset_req) { imu_reset_req = false; do_reset = true; }
+        portEXIT_CRITICAL(&imu_mux);
+
+        imu_state.current_mode = m;
+        imu_state.channel_3 = ch3;
+
+        if (do_reset) {
+            imu_state.angle_pitch = 0.0f;
+            imu_state.angle_roll  = 0.0f;
+            imu_state.gyro_roll_input = 0.0f;
+            imu_state.gyro_pitch_input = 0.0f;
+            imu_state.gyro_yaw_input = 0.0f;
+        }
+
+        unsigned long t0 = micros();
+        imu_read_internal(&imu_state);
+        unsigned long dur = micros() - t0;
+
+        bool ok = (imu_state.max_time_imu != 888888);
+
+        portENTER_CRITICAL(&imu_mux);
+        imu_snap.gyro_roll_input  = imu_state.gyro_roll_input;
+        imu_snap.gyro_pitch_input = imu_state.gyro_pitch_input;
+        imu_snap.gyro_yaw_input   = imu_state.gyro_yaw_input;
+        imu_snap.angle_roll       = imu_state.angle_roll;
+        imu_snap.angle_pitch      = imu_state.angle_pitch;
+        imu_snap.acc_total_vector = imu_state.acc_total_vector;
+        imu_snap.last_dur_us      = dur;
+        imu_snap.ok               = ok;
+        if (ok) imu_snap.last_ok_ms = millis();
+        portEXIT_CRITICAL(&imu_mux);
+
+        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(4)); // 250 Hz
+    }
+}
+
+// ==================== API PUBLIQUE ====================
+
+void imu_start_task() {
+    if (imu_task_handle != nullptr) return;
+
+    xTaskCreatePinnedToCore(
+        imu_task,
+        "imu_i2c",
+        4096,
+        nullptr,
+        4,                // priorité > loop
+        &imu_task_handle,
+        0                 // core 0
+    );
+}
+
+void imu_update(DroneState *drone) {
+    static FlightMode last_mode = MODE_SAFE;
+
+    ImuSnapshot s;
+
+    portENTER_CRITICAL(&imu_mux);
+    imu_in_mode = drone->current_mode;
+    imu_in_ch3  = drone->channel_3;
+    s = imu_snap;
+    portEXIT_CRITICAL(&imu_mux);
+
+    // Auto-reset quand on passe en ARMED
+    if ((drone->current_mode != last_mode) &&
+        (drone->current_mode == MODE_SAFE || drone->current_mode == MODE_ARMED)) {
+        imu_request_reset();
+    }
+    last_mode = drone->current_mode;
+
+    drone->gyro_roll_input  = s.gyro_roll_input;
+    drone->gyro_pitch_input = s.gyro_pitch_input;
+    drone->gyro_yaw_input   = s.gyro_yaw_input;
+    drone->angle_roll       = s.angle_roll;
+    drone->angle_pitch      = s.angle_pitch;
+    drone->acc_total_vector = s.acc_total_vector;
+    drone->current_time_imu = s.last_dur_us;
+}
+
+void imu_request_reset() {
+    portENTER_CRITICAL(&imu_mux);
+    imu_reset_req = true;
+    portEXIT_CRITICAL(&imu_mux);
+}
+
+// Garde pour compatibilité (plus utilisé directement)
+void imu_read(DroneState *drone) {
+    imu_read_internal(drone);
 }

@@ -1,14 +1,23 @@
 #include <Arduino.h>
 #include "radio.h"
 #include "config.h"
-#include "sbus.h" 
+#include "sbus.h"
 
-// Variables globales accessibles par setup_wizard
-// Initialisation à 1500 (neutre) sauf gaz à 0
+// --- AJOUT FreeRTOS ---
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 int raw_channel_1 = 1500, raw_channel_2 = 1500, raw_channel_3 = 0, raw_channel_4 = 1500;
 
 bfs::SbusRx sbus(&Serial2, PIN_SBUS_RX, -1, true);
 bfs::SbusData data;
+
+// --- AJOUT: protection + timestamp ---
+static portMUX_TYPE radio_mux = portMUX_INITIALIZER_UNLOCKED;
+static volatile unsigned long radio_last_ok_ms = 0;
+
+// --- AJOUT: task handle ---
+static TaskHandle_t radio_task_handle = nullptr;
 
 void radio_init() {
     sbus.Begin();
@@ -40,55 +49,83 @@ int process_channel(int input_sbus, bool reverse) {
 }
 
 void radio_read_raw() {
-    // --- CORRECTIF LAG & SECURITE ---
-    // Au lieu de lire un seul paquet (if), on boucle (while) pour vider le buffer.
-    // Si la boucle loop() a pris du retard, plusieurs paquets S.BUS se sont empilés.
-    // On les lit tous jusqu'au dernier pour avoir l'ordre le plus récent.
-    
     bool new_data = false;
     while (sbus.Read()) {
-        // --- NOUVEAU : FILTRAGE FAILSAFE ---
-        // Si le paquet indique une perte de frame ou un failsafe, on l'ignore !
         if (sbus.data().failsafe || sbus.data().lost_frame) {
-            continue; 
+            continue;
         }
-
         data = sbus.data();
-        new_data = true; // On a reçu au moins un paquet frais ET VALIDE
+        new_data = true;
     }
 
     if (new_data) {
-        // Variables temporaires pour vérifier la validité AVANT d'appliquer
-        int t_roll  = process_channel(data.ch[3], false); 
-        int t_pitch = process_channel(data.ch[1], true); 
-        int t_thr   = process_channel(data.ch[2], false); 
+        int t_roll  = process_channel(data.ch[3], false);
+        int t_pitch = process_channel(data.ch[1], true);
+        int t_thr   = process_channel(data.ch[2], false);
         int t_yaw   = process_channel(data.ch[0], false);
 
-        // --- SECURITE INTEGRITE ---
-        // On ne met à jour les globales QUE si TOUS les canaux sont valides (> -1)
-        // Cela empêche un glitch unique de couper les gaz
         if (t_roll != -1 && t_pitch != -1 && t_thr != -1 && t_yaw != -1) {
+            portENTER_CRITICAL(&radio_mux);
             raw_channel_1 = t_roll;
             raw_channel_2 = t_pitch;
             raw_channel_3 = t_thr;
             raw_channel_4 = t_yaw;
+            radio_last_ok_ms = millis();
+            portEXIT_CRITICAL(&radio_mux);
         }
     }
 }
 
-void radio_update(DroneState *drone) {
-    // Lit la radio (et vide le buffer grâce au correctif ci-dessus)
-    radio_read_raw();
-
-    // Copie vers l'état du drone
-    if (raw_channel_3 == 0) {
-        drone->channel_3 = 0; // Sécurité si jamais initialisé à 0
-    } else {
-        drone->channel_1 = raw_channel_1;
-        drone->channel_2 = raw_channel_2;
-        drone->channel_3 = raw_channel_3;
-        drone->channel_4 = raw_channel_4;
+// --- AJOUT: task radio (tourne même si IMU lag) ---
+static void radio_task(void *parameter) {
+    (void)parameter;
+    for (;;) {
+        radio_read_raw();
+        // 1 tick ~ 1ms (suffisant pour vider le buffer S.BUS)
+        vTaskDelay(1);
     }
+}
+
+void radio_start_task() {
+    if (radio_task_handle != nullptr) return;
+
+    // Core 0 pour ne pas dépendre de la loop() (souvent sur core 1)
+    xTaskCreatePinnedToCore(
+        radio_task,
+        "radio_rx",
+        4096,
+        nullptr,
+        3,                 // priorité > loop
+        &radio_task_handle,
+        0                  // core 0
+    );
+}
+
+void radio_update(DroneState *drone) {
+    // IMPORTANT: on ne lit plus le S.BUS ici (c’est la task qui le fait)
+    // On copie juste la dernière valeur valide.
+    int c1, c2, c3, c4;
+    unsigned long last_ok;
+
+    portENTER_CRITICAL(&radio_mux);
+    c1 = raw_channel_1; c2 = raw_channel_2; c3 = raw_channel_3; c4 = raw_channel_4;
+    last_ok = radio_last_ok_ms;
+    portEXIT_CRITICAL(&radio_mux);
+
+    // Si jamais aucune trame valide n’a encore été reçue
+    if (c3 == 0) {
+        drone->channel_3 = 0;
+        return;
+    }
+
+    // Optionnel: si la radio devient stale, vous pouvez décider quoi faire
+    // (ici: on garde les dernières valeurs)
+    (void)last_ok;
+
+    drone->channel_1 = c1;
+    drone->channel_2 = c2;
+    drone->channel_3 = c3;
+    drone->channel_4 = c4;
 }
 
 int convert_receiver_channel(byte function) { return 1500; }
