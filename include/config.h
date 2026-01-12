@@ -3,17 +3,17 @@
 
 // --- PINOUT (ESP32 30-PIN) ---
 // Adapté à votre câblage physique :
-#define PIN_MOTOR_1    27  // Avant Droit (CCW)
-#define PIN_MOTOR_2    13  // Arrière Droit (CW)
-#define PIN_MOTOR_3    25  // Arrière Gauche (CCW)
-#define PIN_MOTOR_4    26  // Avant Gauche (CW)
+#define PIN_MOTOR_1    27
+#define PIN_MOTOR_2    13
+#define PIN_MOTOR_3    25
+#define PIN_MOTOR_4    26
 
 
 #define ESC_FREQ       250 
 
 // --- RADIO (S.BUS) ---
 #define PIN_SBUS_RX    4   
-#define D_FILTER_COEFF 0.3f  
+#define D_FILTER_COEFF 0.18f  // <-- MODIFIÉ: était 0.3f, maintenant plus lisse
 #define PIN_LED        5
 
 // --- I2C ---

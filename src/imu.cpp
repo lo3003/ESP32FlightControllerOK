@@ -18,6 +18,12 @@ static int16_t acc_raw[3];
 static int16_t gyro_raw[3];
 static int16_t temperature;
 
+// --- AJOUT: Filtres PT1 pour gyro ---
+static float gyro_roll_filt = 0.0f;
+static float gyro_pitch_filt = 0.0f;
+static float gyro_yaw_filt = 0.0f;
+#define GYRO_PT1_COEFF 0.5f  // 0.5 = réactif mais lisse le bruit HF
+
 // ==================== SNAPSHOT IMU (partagé task <-> loop) ====================
 typedef struct {
     float gyro_roll_input;
@@ -131,11 +137,20 @@ static void imu_read_internal(DroneState *drone) {
 
     const float gyro_scale = 65.5f;
 
-    drone->gyro_roll_input  = (float)(gyro_roll / gyro_scale);
-    drone->gyro_pitch_input = (float)(gyro_pitch / gyro_scale);
-    drone->gyro_yaw_input   = (float)(gyro_yaw / gyro_scale);
+    // --- MODIFIÉ: Filtre PT1 sur gyro avant injection dans le state ---
+    float gyro_roll_raw  = (float)(gyro_roll / gyro_scale);
+    float gyro_pitch_raw = (float)(gyro_pitch / gyro_scale);
+    float gyro_yaw_raw   = (float)(gyro_yaw / gyro_scale);
 
-    // Intégration avec dt réel
+    gyro_roll_filt  += GYRO_PT1_COEFF * (gyro_roll_raw  - gyro_roll_filt);
+    gyro_pitch_filt += GYRO_PT1_COEFF * (gyro_pitch_raw - gyro_pitch_filt);
+    gyro_yaw_filt   += GYRO_PT1_COEFF * (gyro_yaw_raw   - gyro_yaw_filt);
+
+    drone->gyro_roll_input  = gyro_roll_filt;
+    drone->gyro_pitch_input = gyro_pitch_filt;
+    drone->gyro_yaw_input   = gyro_yaw_filt;
+
+    // Intégration avec dt réel (inchangé, utilise gyro brut pour l'angle)
     const float coeff = dt_s / gyro_scale;
     const float yaw_rad = (float)(gyro_yaw) * coeff * (PI / 180.0f);
 
@@ -160,7 +175,7 @@ static void imu_read_internal(DroneState *drone) {
 
     // Trim mécanique
     angle_roll_acc  += 3.0f;
-    angle_pitch_acc += -6.0f;
+    angle_pitch_acc += -4.0f;
 
     // Fusion
     if (drone->current_mode == MODE_SAFE && drone->channel_3 < 1050) {

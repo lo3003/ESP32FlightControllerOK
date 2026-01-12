@@ -83,96 +83,103 @@ void pid_compute_setpoints(DroneState *drone) {
 void pid_compute(DroneState *drone) {
     float d_err_raw, d_err_filtered;
     
-    // 1. DETECTION VOL SECURISÉE (Smart Integrator with Hysteresis)
-    // Si Throttle > 1020, on met à jour le timer "Dernière fois vu en vol"
+    // 1. DETECTION VOL SECURISÉE
     if (drone->channel_3 > 1020) {
         pid_inflight_timer = millis();
     }
-
-    // On considère qu'on vole tant que le dernier signal valide date de moins de 500ms
-    // Cela permet de survivre à une micro-coupure radio sans reset violent du PID
     bool in_flight = (millis() - pid_inflight_timer < 500);
 
-    // 2. TPA (Throttle PID Attenuation)
-    // Réduit les gains P et D quand les gaz augmentent pour éviter les oscillations
-    float tpa_factor = 1.0;
+    // 2. TPA
+    float tpa_factor = 1.0f;
     if (drone->channel_3 > 1500) {
-        // Mappe 1500-2000 vers 1.0 -> 0.80 (20% de réduction à fond)
-        tpa_factor = map(drone->channel_3, 1500, 2000, 100, 80) / 100.0;
+        tpa_factor = map(drone->channel_3, 1500, 2000, 100, 80) / 100.0f;
     }
 
     // ---------------- ROLL ----------------
     float error = drone->gyro_roll_input - drone->pid_setpoint_roll;
     
-    // Terme I (SMART INTEGRATOR)
-    if (in_flight) {
-        pid_i_mem_roll += drone->i_pitch_roll * error;
-        // Saturation I
-        if(pid_i_mem_roll > PID_MAX_ROLL) pid_i_mem_roll = PID_MAX_ROLL;
-        else if(pid_i_mem_roll < -PID_MAX_ROLL) pid_i_mem_roll = -PID_MAX_ROLL;
-    } else {
-        pid_i_mem_roll = 0; // Reset seulement si au sol depuis > 500ms
-    }
+    // Calcul P et D d'abord
+    float p_term_roll = (drone->p_pitch_roll * tpa_factor) * error;
     
-    // Terme D (Measurement)
     d_err_raw = pid_last_roll_input - drone->gyro_roll_input;
-    // Filtrage D
     d_err_filtered = pid_roll_d_filter_old + D_FILTER_COEFF * (d_err_raw - pid_roll_d_filter_old);
     pid_roll_d_filter_old = d_err_filtered;
     pid_last_roll_input = drone->gyro_roll_input;
+    float d_term_roll = (drone->d_pitch_roll * tpa_factor) * d_err_filtered;
+
+    // --- MODIFIÉ: Anti-windup conditionnel ---
+    if (in_flight) {
+        float output_before_i = p_term_roll + pid_i_mem_roll + d_term_roll;
+        // On n'accumule le I que si la sortie n'est pas déjà saturée
+        if (fabsf(output_before_i) < PID_MAX_ROLL) {
+            pid_i_mem_roll += drone->i_pitch_roll * error;
+        }
+        // Saturation I
+        if (pid_i_mem_roll > PID_MAX_ROLL) pid_i_mem_roll = PID_MAX_ROLL;
+        else if (pid_i_mem_roll < -PID_MAX_ROLL) pid_i_mem_roll = -PID_MAX_ROLL;
+    } else {
+        pid_i_mem_roll = 0;
+    }
+
+    // Sortie ROLL
+    drone->pid_output_roll = p_term_roll + pid_i_mem_roll + d_term_roll;
     
-    // Sortie ROLL (Avec TPA sur P et D)
-    drone->pid_output_roll = (drone->p_pitch_roll * tpa_factor) * error 
-                           + pid_i_mem_roll 
-                           + (drone->d_pitch_roll * tpa_factor) * d_err_filtered;
-    
-    // Saturation Globale
-    if(drone->pid_output_roll > PID_MAX_ROLL) drone->pid_output_roll = PID_MAX_ROLL;
-    else if(drone->pid_output_roll < -PID_MAX_ROLL) drone->pid_output_roll = -PID_MAX_ROLL;
+    if (drone->pid_output_roll > PID_MAX_ROLL) drone->pid_output_roll = PID_MAX_ROLL;
+    else if (drone->pid_output_roll < -PID_MAX_ROLL) drone->pid_output_roll = -PID_MAX_ROLL;
 
     // ---------------- PITCH ----------------
     error = drone->gyro_pitch_input - drone->pid_setpoint_pitch;
-    
-    if (in_flight) {
-        pid_i_mem_pitch += drone->i_pitch_roll * error; 
-        if(pid_i_mem_pitch > PID_MAX_PITCH) pid_i_mem_pitch = PID_MAX_PITCH;
-        else if(pid_i_mem_pitch < -PID_MAX_PITCH) pid_i_mem_pitch = -PID_MAX_PITCH;
-    } else {
-        pid_i_mem_pitch = 0;
-    }
-    
+
+    float p_term_pitch = (drone->p_pitch_roll * tpa_factor) * error;
+
     d_err_raw = pid_last_pitch_input - drone->gyro_pitch_input;
     d_err_filtered = pid_pitch_d_filter_old + D_FILTER_COEFF * (d_err_raw - pid_pitch_d_filter_old);
     pid_pitch_d_filter_old = d_err_filtered;
     pid_last_pitch_input = drone->gyro_pitch_input;
+    float d_term_pitch = (drone->d_pitch_roll * tpa_factor) * d_err_filtered;
 
-    // Sortie PITCH (Avec TPA)
-    drone->pid_output_pitch = (drone->p_pitch_roll * tpa_factor) * error 
-                            + pid_i_mem_pitch 
-                            + (drone->d_pitch_roll * tpa_factor) * d_err_filtered;
+    // --- MODIFIÉ: Anti-windup conditionnel ---
+    if (in_flight) {
+        float output_before_i = p_term_pitch + pid_i_mem_pitch + d_term_pitch;
+        if (fabsf(output_before_i) < PID_MAX_PITCH) {
+            pid_i_mem_pitch += drone->i_pitch_roll * error;
+        }
+        if (pid_i_mem_pitch > PID_MAX_PITCH) pid_i_mem_pitch = PID_MAX_PITCH;
+        else if (pid_i_mem_pitch < -PID_MAX_PITCH) pid_i_mem_pitch = -PID_MAX_PITCH;
+    } else {
+        pid_i_mem_pitch = 0;
+    }
 
-    if(drone->pid_output_pitch > PID_MAX_PITCH) drone->pid_output_pitch = PID_MAX_PITCH;
-    else if(drone->pid_output_pitch < -PID_MAX_PITCH) drone->pid_output_pitch = -PID_MAX_PITCH;
+    drone->pid_output_pitch = p_term_pitch + pid_i_mem_pitch + d_term_pitch;
+
+    if (drone->pid_output_pitch > PID_MAX_PITCH) drone->pid_output_pitch = PID_MAX_PITCH;
+    else if (drone->pid_output_pitch < -PID_MAX_PITCH) drone->pid_output_pitch = -PID_MAX_PITCH;
 
     // ---------------- YAW ----------------
-    // Pas de TPA sur le Yaw généralement (ou moins nécessaire)
     error = drone->gyro_yaw_input - drone->pid_setpoint_yaw;
-    
-    if (in_flight) {
-        pid_i_mem_yaw += drone->i_yaw * error; 
-        if(pid_i_mem_yaw > PID_MAX_YAW) pid_i_mem_yaw = PID_MAX_YAW;
-        else if(pid_i_mem_yaw < -PID_MAX_YAW) pid_i_mem_yaw = -PID_MAX_YAW;
-    } else {
-        pid_i_mem_yaw = 0;
-    }
-    
+
+    float p_term_yaw = drone->p_yaw * error;
+
     d_err_raw = pid_last_yaw_input - drone->gyro_yaw_input;
     d_err_filtered = pid_yaw_d_filter_old + D_FILTER_COEFF * (d_err_raw - pid_yaw_d_filter_old);
     pid_yaw_d_filter_old = d_err_filtered;
     pid_last_yaw_input = drone->gyro_yaw_input;
+    float d_term_yaw = drone->d_yaw * d_err_filtered;
 
-    drone->pid_output_yaw = drone->p_yaw * error + pid_i_mem_yaw + drone->d_yaw * d_err_filtered;
+    // --- MODIFIÉ: Anti-windup conditionnel ---
+    if (in_flight) {
+        float output_before_i = p_term_yaw + pid_i_mem_yaw + d_term_yaw;
+        if (fabsf(output_before_i) < PID_MAX_YAW) {
+            pid_i_mem_yaw += drone->i_yaw * error;
+        }
+        if (pid_i_mem_yaw > PID_MAX_YAW) pid_i_mem_yaw = PID_MAX_YAW;
+        else if (pid_i_mem_yaw < -PID_MAX_YAW) pid_i_mem_yaw = -PID_MAX_YAW;
+    } else {
+        pid_i_mem_yaw = 0;
+    }
 
-    if(drone->pid_output_yaw > PID_MAX_YAW) drone->pid_output_yaw = PID_MAX_YAW;
-    else if(drone->pid_output_yaw < -PID_MAX_YAW) drone->pid_output_yaw = -PID_MAX_YAW;
+    drone->pid_output_yaw = p_term_yaw + pid_i_mem_yaw + d_term_yaw;
+
+    if (drone->pid_output_yaw > PID_MAX_YAW) drone->pid_output_yaw = PID_MAX_YAW;
+    else if (drone->pid_output_yaw < -PID_MAX_YAW) drone->pid_output_yaw = -PID_MAX_YAW;
 }

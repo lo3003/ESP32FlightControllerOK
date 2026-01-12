@@ -22,17 +22,18 @@ const char index_html[] PROGMEM = R"rawliteral(
   <title>Drone Dashboard</title>
   <style>
     :root {
-      --primary: #00d4ff;
-      --secondary: #7b2cbf;
-      --success: #2ecc71;
-      --danger: #e74c3c;
-      --warning: #f39c12;
-      --dark: #0d1117;
-      --card-bg: rgba(30, 35, 45, 0.85);
-      --glass: rgba(255, 255, 255, 0.05);
-      --border: rgba(255, 255, 255, 0.1);
-      --text: #e6edf3;
-      --text-muted: #8b949e;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --success: #22c55e;
+      --danger: #ef4444;
+      --danger-hover: #dc2626;
+      --warning: #f59e0b;
+      --dark: #0f172a;
+      --card-bg: #1e293b;
+      --card-border: #334155;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --input-bg: #0f172a;
     }
 
     * {
@@ -43,7 +44,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 
     body {
       font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-      background: linear-gradient(135deg, #0d1117 0%, #161b22 50%, #1a1f2e 100%);
+      background: var(--dark);
       min-height: 100vh;
       color: var(--text);
       padding: 20px;
@@ -57,25 +58,37 @@ const char index_html[] PROGMEM = R"rawliteral(
     header {
       text-align: center;
       margin-bottom: 30px;
-      padding: 20px;
+      padding: 24px;
       background: var(--card-bg);
-      backdrop-filter: blur(20px);
-      border-radius: 20px;
-      border: 1px solid var(--border);
+      border-radius: 12px;
+      border: 1px solid var(--card-border);
     }
 
     header h1 {
-      font-size: clamp(1.5rem, 4vw, 2.5rem);
-      background: linear-gradient(135deg, var(--primary), var(--secondary));
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-      margin-bottom: 5px;
+      font-size: clamp(1.5rem, 4vw, 2rem);
+      color: var(--text);
+      margin-bottom: 4px;
+      font-weight: 600;
     }
 
     header .subtitle {
       color: var(--text-muted);
-      font-size: 0.9rem;
+      font-size: 0.875rem;
+    }
+
+    .status-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      background: var(--success);
+      border-radius: 50%;
+      margin-right: 8px;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
     }
 
     .dashboard {
@@ -86,16 +99,14 @@ const char index_html[] PROGMEM = R"rawliteral(
 
     .card {
       background: var(--card-bg);
-      backdrop-filter: blur(20px);
-      border-radius: 16px;
-      border: 1px solid var(--border);
+      border-radius: 12px;
+      border: 1px solid var(--card-border);
       padding: 24px;
-      transition: transform 0.3s ease, box-shadow 0.3s ease;
+      transition: border-color 0.2s ease;
     }
 
     .card:hover {
-      transform: translateY(-4px);
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+      border-color: #475569;
     }
 
     .card-header {
@@ -103,36 +114,32 @@ const char index_html[] PROGMEM = R"rawliteral(
       align-items: center;
       gap: 12px;
       margin-bottom: 20px;
-      padding-bottom: 15px;
-      border-bottom: 1px solid var(--border);
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--card-border);
     }
 
     .card-header .icon {
-      width: 40px;
-      height: 40px;
-      border-radius: 10px;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 1.3rem;
+      font-size: 1.1rem;
+      background: var(--input-bg);
     }
 
     .card-header h3 {
-      font-size: 1.1rem;
+      font-size: 1rem;
       font-weight: 600;
+      color: var(--text);
     }
-
-    .icon-blue { background: linear-gradient(135deg, #00d4ff33, #00d4ff11); color: var(--primary); }
-    .icon-green { background: linear-gradient(135deg, #2ecc7133, #2ecc7111); color: var(--success); }
-    .icon-orange { background: linear-gradient(135deg, #f39c1233, #f39c1211); color: var(--warning); }
-    .icon-purple { background: linear-gradient(135deg, #7b2cbf33, #7b2cbf11); color: var(--secondary); }
-    .icon-red { background: linear-gradient(135deg, #e74c3c33, #e74c3c11); color: var(--danger); }
 
     /* Attitude Indicator */
     .attitude-container {
       display: flex;
       justify-content: center;
-      gap: 40px;
+      gap: 48px;
       flex-wrap: wrap;
     }
 
@@ -143,19 +150,16 @@ const char index_html[] PROGMEM = R"rawliteral(
     .attitude-value {
       font-size: 2.5rem;
       font-weight: 700;
-      font-family: 'Consolas', monospace;
-      background: linear-gradient(135deg, var(--primary), var(--secondary));
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
+      font-family: 'Consolas', 'Monaco', monospace;
+      color: var(--text);
     }
 
     .attitude-label {
       color: var(--text-muted);
-      font-size: 0.85rem;
+      font-size: 0.75rem;
       text-transform: uppercase;
-      letter-spacing: 1px;
-      margin-top: 5px;
+      letter-spacing: 1.5px;
+      margin-top: 4px;
     }
 
     /* Stats Row */
@@ -163,8 +167,8 @@ const char index_html[] PROGMEM = R"rawliteral(
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 12px 0;
-      border-bottom: 1px solid var(--border);
+      padding: 10px 0;
+      border-bottom: 1px solid var(--card-border);
     }
 
     .stat-row:last-child {
@@ -173,13 +177,14 @@ const char index_html[] PROGMEM = R"rawliteral(
 
     .stat-label {
       color: var(--text-muted);
-      font-size: 0.9rem;
+      font-size: 0.875rem;
     }
 
     .stat-value {
       font-family: 'Consolas', monospace;
       font-weight: 600;
-      font-size: 1rem;
+      font-size: 0.875rem;
+      color: var(--text);
     }
 
     .stat-value.ok { color: var(--success); }
@@ -188,18 +193,18 @@ const char index_html[] PROGMEM = R"rawliteral(
 
     /* Radio Sliders */
     .radio-channel {
-      margin-bottom: 16px;
+      margin-bottom: 14px;
     }
 
     .radio-header {
       display: flex;
       justify-content: space-between;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
     }
 
     .radio-label {
       color: var(--text-muted);
-      font-size: 0.85rem;
+      font-size: 0.75rem;
       text-transform: uppercase;
       letter-spacing: 1px;
     }
@@ -208,182 +213,231 @@ const char index_html[] PROGMEM = R"rawliteral(
       font-family: 'Consolas', monospace;
       color: var(--primary);
       font-weight: 600;
+      font-size: 0.875rem;
     }
 
     input[type="range"] {
       -webkit-appearance: none;
       width: 100%;
-      height: 8px;
-      background: linear-gradient(90deg, var(--secondary), var(--primary));
-      border-radius: 10px;
-      opacity: 0.7;
+      height: 6px;
+      background: var(--card-border);
+      border-radius: 3px;
     }
 
     input[type="range"]::-webkit-slider-thumb {
       -webkit-appearance: none;
-      width: 20px;
-      height: 20px;
+      width: 16px;
+      height: 16px;
       border-radius: 50%;
-      background: white;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+      background: var(--primary);
       cursor: pointer;
     }
 
     /* PID Inputs */
     .pid-section {
-      margin-bottom: 20px;
+      margin-bottom: 16px;
     }
 
     .pid-title {
-      font-size: 0.8rem;
+      font-size: 0.7rem;
       color: var(--text-muted);
       text-transform: uppercase;
-      letter-spacing: 1px;
-      margin-bottom: 12px;
-      padding-bottom: 8px;
-      border-bottom: 1px solid var(--border);
+      letter-spacing: 1.5px;
+      margin-bottom: 10px;
     }
 
     .pid-row {
       display: flex;
       align-items: center;
       gap: 12px;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
     }
 
     .pid-row label {
-      width: 60px;
-      font-size: 0.9rem;
+      width: 50px;
+      font-size: 0.875rem;
       color: var(--text-muted);
     }
 
     .pid-row input {
       flex: 1;
-      padding: 10px 14px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: var(--glass);
+      padding: 10px 12px;
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      background: var(--input-bg);
       color: var(--text);
       font-family: 'Consolas', monospace;
-      font-size: 1rem;
-      transition: border-color 0.3s, box-shadow 0.3s;
+      font-size: 0.875rem;
+      transition: border-color 0.2s;
     }
 
     .pid-row input:focus {
       outline: none;
       border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.15);
     }
 
     /* Buttons */
     .btn {
-      padding: 12px 24px;
+      padding: 12px 20px;
       border: none;
-      border-radius: 10px;
+      border-radius: 8px;
       font-weight: 600;
-      font-size: 0.95rem;
+      font-size: 0.875rem;
       cursor: pointer;
-      transition: all 0.3s ease;
+      transition: all 0.2s ease;
       text-transform: uppercase;
       letter-spacing: 0.5px;
+      width: 100%;
+      position: relative;
+      overflow: hidden;
     }
 
     .btn-primary {
-      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      background: var(--primary);
       color: white;
-      width: 100%;
     }
 
     .btn-primary:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 10px 30px rgba(0, 212, 255, 0.3);
+      background: var(--primary-hover);
+    }
+
+    .btn-primary.success {
+      background: var(--success) !important;
     }
 
     .btn-danger {
-      background: linear-gradient(135deg, var(--danger), #c0392b);
+      background: var(--danger);
       color: white;
-      width: 100%;
     }
 
     .btn-danger:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 10px 30px rgba(231, 76, 60, 0.3);
+      background: var(--danger-hover);
+    }
+
+    .btn-danger.triggered {
+      background: #fbbf24 !important;
+      color: #000 !important;
+      animation: flash 0.3s ease 2;
+    }
+
+    @keyframes flash {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
     }
 
     /* Motor Grid */
     .motor-grid {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
-      gap: 12px;
-      margin-bottom: 20px;
+      gap: 10px;
+      margin-bottom: 16px;
     }
 
     .btn-motor {
-      padding: 20px;
-      border: 2px solid var(--border);
-      border-radius: 12px;
-      background: var(--glass);
+      padding: 16px;
+      border: 2px solid var(--card-border);
+      border-radius: 8px;
+      background: var(--input-bg);
       color: var(--text);
       font-weight: 700;
-      font-size: 1.1rem;
+      font-size: 1rem;
       cursor: pointer;
-      transition: all 0.3s ease;
+      transition: all 0.2s ease;
     }
 
     .btn-motor:hover {
       border-color: var(--primary);
-      background: rgba(0, 212, 255, 0.1);
     }
 
     .btn-motor.active {
       border-color: var(--primary);
-      background: linear-gradient(135deg, rgba(0, 212, 255, 0.2), rgba(123, 44, 191, 0.2));
-      box-shadow: 0 0 20px rgba(0, 212, 255, 0.2);
+      background: rgba(59, 130, 246, 0.15);
     }
 
     .motor-slider-container {
-      margin: 20px 0;
+      margin: 16px 0;
     }
 
     .slider-value {
       text-align: center;
       font-family: 'Consolas', monospace;
-      font-size: 1.5rem;
+      font-size: 1.25rem;
       color: var(--primary);
-      margin-top: 10px;
+      margin-top: 8px;
     }
 
     /* Loop Time Indicator */
     .loop-indicator {
       display: flex;
       align-items: center;
-      gap: 15px;
-      padding: 15px;
-      background: var(--glass);
-      border-radius: 12px;
-      margin-top: 15px;
+      gap: 12px;
+      padding: 12px;
+      background: var(--input-bg);
+      border-radius: 8px;
+      margin-top: 16px;
     }
 
     .loop-bar {
       flex: 1;
-      height: 8px;
-      background: var(--border);
-      border-radius: 10px;
+      height: 6px;
+      background: var(--card-border);
+      border-radius: 3px;
       overflow: hidden;
     }
 
     .loop-fill {
       height: 100%;
-      border-radius: 10px;
+      border-radius: 3px;
       transition: width 0.3s, background 0.3s;
+    }
+
+    /* Toast Notification */
+    .toast {
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      padding: 14px 28px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.875rem;
+      opacity: 0;
+      transition: all 0.3s ease;
+      z-index: 1000;
+    }
+
+    .toast.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+
+    .toast.success {
+      background: var(--success);
+      color: white;
+    }
+
+    .toast.danger {
+      background: var(--danger);
+      color: white;
+    }
+
+    .toast.warning {
+      background: var(--warning);
+      color: #000;
     }
 
     /* Responsive */
     @media (max-width: 768px) {
-      body { padding: 10px; }
-      .dashboard { gap: 15px; }
+      body { padding: 12px; }
+      .dashboard { gap: 12px; }
       .card { padding: 18px; }
       .attitude-value { font-size: 2rem; }
+      .attitude-container { gap: 32px; }
     }
 
     @media (min-width: 1200px) {
@@ -396,7 +450,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <body>
   <div class="container">
     <header>
-      <h1>🚁 Drone Dashboard</h1>
+      <h1><span class="status-dot"></span>Drone Dashboard</h1>
       <p class="subtitle">ESP32 Flight Controller — Real-time Telemetry</p>
     </header>
 
@@ -404,7 +458,7 @@ const char index_html[] PROGMEM = R"rawliteral(
       <!-- Attitude Card -->
       <div class="card">
         <div class="card-header">
-          <div class="icon icon-blue">📐</div>
+          <div class="icon">📐</div>
           <h3>Attitude</h3>
         </div>
         <div class="attitude-container">
@@ -422,14 +476,14 @@ const char index_html[] PROGMEM = R"rawliteral(
           <div class="loop-bar">
             <div class="loop-fill" id="loop_bar"></div>
           </div>
-          <span class="stat-value" id="lt">0</span><span style="color:var(--text-muted)">µs</span>
+          <span class="stat-value" id="lt">0</span><span style="color:var(--text-muted);font-size:0.75rem;margin-left:2px">µs</span>
         </div>
       </div>
 
       <!-- Diagnostics Card -->
       <div class="card">
         <div class="card-header">
-          <div class="icon icon-orange">⚡</div>
+          <div class="icon">⚡</div>
           <h3>Diagnostics</h3>
         </div>
         <div class="stat-row">
@@ -448,13 +502,13 @@ const char index_html[] PROGMEM = R"rawliteral(
           <span class="stat-label">PID / Motors</span>
           <span class="stat-value" id="max_pid">0</span>
         </div>
-        <button class="btn btn-primary" style="margin-top:15px" onclick="fetch('/reset_max')">Reset Counters</button>
+        <button class="btn btn-primary" style="margin-top:16px" onclick="resetCounters(this)">Reset Counters</button>
       </div>
 
       <!-- Radio Monitor Card -->
       <div class="card">
         <div class="card-header">
-          <div class="icon icon-purple">📡</div>
+          <div class="icon">📡</div>
           <h3>Radio Monitor</h3>
         </div>
         <div class="radio-channel">
@@ -490,7 +544,7 @@ const char index_html[] PROGMEM = R"rawliteral(
       <!-- PID Tuning Card -->
       <div class="card">
         <div class="card-header">
-          <div class="icon icon-green">🎚️</div>
+          <div class="icon">🎚️</div>
           <h3>PID Tuning</h3>
         </div>
         <div class="pid-section">
@@ -509,13 +563,13 @@ const char index_html[] PROGMEM = R"rawliteral(
           <div class="pid-title">Auto Level</div>
           <div class="pid-row"><label>Level P</label><input type="number" step="1.0" id="pl"></div>
         </div>
-        <button class="btn btn-primary" onclick="sendPID()">Update PID</button>
+        <button class="btn btn-primary" id="pidBtn" onclick="sendPID()">Update PID</button>
       </div>
 
       <!-- Motor Test Card -->
       <div class="card">
         <div class="card-header">
-          <div class="icon icon-red">🔧</div>
+          <div class="icon">🔧</div>
           <h3>Motor Test</h3>
         </div>
         <div class="motor-grid">
@@ -528,12 +582,24 @@ const char index_html[] PROGMEM = R"rawliteral(
           <input type="range" min="1000" max="1300" value="1000" id="slider" oninput="updateVal(this.value)">
           <div class="slider-value" id="sliderVal">1000</div>
         </div>
-        <button class="btn btn-danger" onclick="stopAll()">EMERGENCY STOP</button>
+        <button class="btn btn-danger" id="stopBtn" onclick="stopAll()">Emergency Stop</button>
       </div>
     </div>
   </div>
 
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
 <script>
+// Toast notification
+function showToast(message, type = 'success') {
+  const toast = document.getElementById('toast');
+  toast.textContent = message;
+  toast.className = 'toast ' + type + ' show';
+  setTimeout(() => { toast.classList.remove('show'); }, 2500);
+}
+
+// Load PID
 function loadPID() {
   fetch('/get_pid').then(res => res.json()).then(data => {
     document.getElementById('ppr').value = data.ppr;
@@ -546,21 +612,67 @@ function loadPID() {
   });
 }
 
+// Send PID with feedback
 function sendPID() {
+  const btn = document.getElementById('pidBtn');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Updating...';
+  
   let params = ['ppr','ipr','dpr','py','iy','dy','pl'].map(id => `${id}=${document.getElementById(id).value}`).join('&');
-  fetch(`/set_pid?${params}`).then(() => {
-    let btn = event.target;
-    btn.textContent = '✓ Updated!';
-    setTimeout(() => btn.textContent = 'Update PID', 1500);
-  });
+  
+  fetch(`/set_pid?${params}`)
+    .then(res => {
+      if (res.ok) {
+        btn.textContent = '✓ Updated';
+        btn.classList.add('success');
+        showToast('PID parameters updated successfully', 'success');
+      } else {
+        throw new Error('Failed');
+      }
+    })
+    .catch(() => {
+      showToast('Failed to update PID', 'danger');
+    })
+    .finally(() => {
+      setTimeout(() => {
+        btn.textContent = originalText;
+        btn.classList.remove('success');
+        btn.disabled = false;
+      }, 1500);
+    });
 }
 
+// Reset counters with feedback
+function resetCounters(btn) {
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Resetting...';
+  
+  fetch('/reset_max')
+    .then(res => {
+      if (res.ok) {
+        btn.textContent = '✓ Reset';
+        btn.classList.add('success');
+        showToast('Counters reset', 'success');
+      }
+    })
+    .finally(() => {
+      setTimeout(() => {
+        btn.textContent = originalText;
+        btn.classList.remove('success');
+        btn.disabled = false;
+      }, 1200);
+    });
+}
+
+// Data polling
 setInterval(() => {
   fetch('/data').then(res => res.json()).then(data => {
     document.getElementById("ar").innerText = data.ar.toFixed(1);
     document.getElementById("ap").innerText = data.ap.toFixed(1);
 
-    // Loop time with color + bar
+    // Loop time
     let lt = data.lt;
     let ltEl = document.getElementById("lt");
     let barEl = document.getElementById("loop_bar");
@@ -585,6 +697,7 @@ setInterval(() => {
   });
 }, 200);
 
+// Motor test
 let activeMotor = 0;
 function test(m) {
   activeMotor = m;
@@ -592,6 +705,7 @@ function test(m) {
   document.getElementById('btn' + m).classList.add('active');
   document.getElementById('slider').value = 1000;
   updateVal(1000);
+  showToast('Motor ' + m + ' selected', 'warning');
 }
 
 function updateVal(val) {
@@ -599,12 +713,25 @@ function updateVal(val) {
   if (activeMotor > 0) fetch(`/motor?m=${activeMotor}&val=${val}`);
 }
 
+// Emergency stop with feedback
 function stopAll() {
+  const btn = document.getElementById('stopBtn');
+  btn.classList.add('triggered');
+  
   activeMotor = 0;
   document.querySelectorAll('.btn-motor').forEach(b => b.classList.remove('active'));
   document.getElementById('slider').value = 1000;
   document.getElementById('sliderVal').innerText = 1000;
-  fetch('/stop');
+  
+  fetch('/stop')
+    .then(res => {
+      if (res.ok) {
+        showToast('⚠ EMERGENCY STOP ACTIVATED', 'danger');
+      }
+    })
+    .finally(() => {
+      setTimeout(() => { btn.classList.remove('triggered'); }, 600);
+    });
 }
 
 window.onload = loadPID;
