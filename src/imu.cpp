@@ -143,7 +143,7 @@ static void imu_read_internal(DroneState *drone) {
     double gyro_pitch = -gyro_y_cal;
     long acc_pitch_val = acc_raw[0];
 
-    double gyro_yaw   = -gyro_z_cal;  // <-- AJOUT du moins pour inverser
+    double gyro_yaw   = gyro_z_cal;  // <-- RETIRER le moins (pas d'inversion ici)
     long acc_yaw_val  = acc_raw[2];
 
     const float gyro_scale = 65.5f;

@@ -38,20 +38,15 @@ void motors_mix(DroneState *drone) {
     if(raw_throttle < 1000) raw_throttle = 1000;
     if(raw_throttle > 2000) raw_throttle = 2000;
 
-    // --- CORRECTION LINEARITE (Le Secret est ici) ---
-    // Au lieu d'ajouter bêtement, on "étire" la plage du stick pour qu'elle colle
-    // parfaitement à la plage des moteurs (du Ralenti jusqu'au Max).
-    
-    // Stick 1000 -> Devient MIN_THROTTLE_IDLE (ex: 1150)
-    // Stick 2000 -> Devient MAX_THROTTLE_FLIGHT (ex: 2000)
-    
     int throttle = map(raw_throttle, 1000, 2000, MIN_THROTTLE_IDLE, MAX_THROTTLE_FLIGHT);
 
-    // Mixage PID
-    int esc_1_calc = throttle - drone->pid_output_pitch + drone->pid_output_roll - drone->pid_output_yaw; 
-    int esc_2_calc = throttle + drone->pid_output_pitch + drone->pid_output_roll + drone->pid_output_yaw; 
-    int esc_3_calc = throttle + drone->pid_output_pitch - drone->pid_output_roll - drone->pid_output_yaw; 
-    int esc_4_calc = throttle - drone->pid_output_pitch - drone->pid_output_roll + drone->pid_output_yaw; 
+    // Mixage PID - INVERSION YAW ICI
+    int pid_yaw_inv = -drone->pid_output_yaw;  // <-- INVERSION
+    
+    int esc_1_calc = throttle - drone->pid_output_pitch + drone->pid_output_roll - pid_yaw_inv; 
+    int esc_2_calc = throttle + drone->pid_output_pitch + drone->pid_output_roll + pid_yaw_inv; 
+    int esc_3_calc = throttle + drone->pid_output_pitch - drone->pid_output_roll - pid_yaw_inv; 
+    int esc_4_calc = throttle - drone->pid_output_pitch - drone->pid_output_roll + pid_yaw_inv; 
 
     // Saturation (Pour ne pas dépasser le max possible)
     int max_val = esc_1_calc;

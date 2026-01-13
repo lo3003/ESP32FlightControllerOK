@@ -76,7 +76,7 @@ void pid_compute_setpoints(DroneState *drone) {
         if(drone->channel_4 > 1508) input_yaw = (drone->channel_4 - 1508) / 3.0;
         else if(drone->channel_4 < 1492) input_yaw = (drone->channel_4 - 1492) / 3.0;
     }
-    drone->pid_setpoint_yaw = input_yaw;
+    drone->pid_setpoint_yaw = input_yaw;  // <-- RETIRER le moins
 }
 
 // --- BOUCLE PID PRINCIPALE ---
