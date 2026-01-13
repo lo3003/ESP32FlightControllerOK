@@ -54,7 +54,7 @@ typedef struct {
     unsigned long max_time_imu;
     unsigned long max_time_pid;
     
-    unsigned long current_time_imu;  // ← AJOUTER
+    unsigned long current_time_imu;  
     
 } DroneState;
 
