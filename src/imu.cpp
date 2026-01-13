@@ -143,7 +143,7 @@ static void imu_read_internal(DroneState *drone) {
     double gyro_pitch = -gyro_y_cal;
     long acc_pitch_val = acc_raw[0];
 
-    double gyro_yaw   = gyro_z_cal;
+    double gyro_yaw   = -gyro_z_cal;  // <-- AJOUT du moins pour inverser
     long acc_yaw_val  = acc_raw[2];
 
     const float gyro_scale = 65.5f;
@@ -186,7 +186,7 @@ static void imu_read_internal(DroneState *drone) {
         kalman_roll.setAngle(angle_roll_acc);
         kalman_pitch.setAngle(angle_pitch_acc);
         drone->angle_roll = angle_roll_acc;
-        drone->angle_pitch = angle_pitch_acc;²
+        drone->angle_pitch = angle_pitch_acc;
         kalman_initialized = true;
     } else {
         // Mode adaptatif
@@ -202,10 +202,17 @@ static void imu_read_internal(DroneState *drone) {
         drone->angle_pitch = kalman_pitch.update(angle_pitch_acc, gyro_pitch_dps, dt_s);
     }
 
-    // Compensation yaw (CORRIGÉ)
+    // Compensation yaw - DESACTIVER POUR TEST
+    #if 0  // <-- Mettre 1 pour réactiver
     const float yaw_rad = gyro_yaw_dps * dt_s * (PI / 180.0f);
-    drone->angle_pitch -= drone->angle_roll  * sinf(yaw_rad);
-    drone->angle_roll  += drone->angle_pitch * sinf(yaw_rad);
+    const float s = sinf(yaw_rad);
+
+    const float roll0  = drone->angle_roll;
+    const float pitch0 = drone->angle_pitch;
+
+    drone->angle_pitch = pitch0 - roll0  * s;
+    drone->angle_roll  = roll0  + pitch0 * s;
+    #endif
 }
 
 // ==================== TASK IMU ====================
