@@ -49,29 +49,29 @@ void pid_reset_integral() {
 void pid_compute_setpoints(DroneState *drone) {
     // --- ROLL ---
     float input_roll = 0;
-    // MODIFIÉ : Deadband réduit de 16µs à 6µs
     if(drone->channel_1 > 1503) input_roll = drone->channel_1 - 1503;
     else if(drone->channel_1 < 1497) input_roll = drone->channel_1 - 1497;
     
     input_roll -= drone->angle_roll * drone->p_level; 
-    drone->pid_setpoint_roll = input_roll / 1.5;  // MODIFIÉ : était /2.0, maintenant /1.5 pour plus d'autorité
+    drone->pid_setpoint_roll = input_roll / 1.5;
 
     // --- PITCH ---
     float input_pitch = 0;
-    // MODIFIÉ : Deadband réduit de 16µs à 6µs
     if(drone->channel_2 > 1503) input_pitch = drone->channel_2 - 1503;
     else if(drone->channel_2 < 1497) input_pitch = drone->channel_2 - 1497;
     
     input_pitch -= drone->angle_pitch * drone->p_level; 
-    drone->pid_setpoint_pitch = input_pitch / 1.5;  // MODIFIÉ : était /2.0
+    drone->pid_setpoint_pitch = input_pitch / 1.5;
 
     // --- YAW ---
     float input_yaw = 0;
     if(drone->channel_3 > 1050) { 
-        if(drone->channel_4 > 1503) input_yaw = (drone->channel_4 - 1500);  // MODIFIÉ : supprimé /1.5
+        if(drone->channel_4 > 1503) input_yaw = (drone->channel_4 - 1500);
         else if(drone->channel_4 < 1497) input_yaw = (drone->channel_4 - 1500);
     }
-    drone->pid_setpoint_yaw = -input_yaw;  
+    
+    // ✅ CORRECTION CRITIQUE : RETIRER L'INVERSION
+    drone->pid_setpoint_yaw = input_yaw;  // <-- PLUS de signe moins !
 }
 
 // --- BOUCLE PID PRINCIPALE ---

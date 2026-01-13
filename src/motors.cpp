@@ -40,13 +40,16 @@ void motors_mix(DroneState *drone) {
 
     int throttle = map(raw_throttle, 1000, 2000, MIN_THROTTLE_IDLE, MAX_THROTTLE_FLIGHT);
 
-    // Mixage PID - INVERSION YAW ICI
-    int pid_yaw_inv = -drone->pid_output_yaw;  // <-- INVERSION
+    // Mixage PID selon configuration:
+    // M1 (IO27) = Avant-Droit CCW  : PITCH(-) ROLL(+) YAW(-)
+    // M2 (IO13) = Arrière-Droit CW : PITCH(+) ROLL(+) YAW(+)
+    // M3 (IO25) = Arrière-Gauche CCW : PITCH(+) ROLL(-) YAW(-)
+    // M4 (IO26) = Avant-Gauche CW  : PITCH(-) ROLL(-) YAW(+)
     
-    int esc_1_calc = throttle - drone->pid_output_pitch + drone->pid_output_roll - pid_yaw_inv; 
-    int esc_2_calc = throttle + drone->pid_output_pitch + drone->pid_output_roll + pid_yaw_inv; 
-    int esc_3_calc = throttle + drone->pid_output_pitch - drone->pid_output_roll - pid_yaw_inv; 
-    int esc_4_calc = throttle - drone->pid_output_pitch - drone->pid_output_roll + pid_yaw_inv; 
+    int esc_1_calc = throttle - drone->pid_output_pitch + drone->pid_output_roll - drone->pid_output_yaw; 
+    int esc_2_calc = throttle + drone->pid_output_pitch + drone->pid_output_roll + drone->pid_output_yaw; 
+    int esc_3_calc = throttle + drone->pid_output_pitch - drone->pid_output_roll - drone->pid_output_yaw; 
+    int esc_4_calc = throttle - drone->pid_output_pitch - drone->pid_output_roll + drone->pid_output_yaw; 
 
     // Saturation (Pour ne pas dépasser le max possible)
     int max_val = esc_1_calc;

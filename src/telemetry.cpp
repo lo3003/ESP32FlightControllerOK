@@ -470,6 +470,10 @@ const char index_html[] PROGMEM = R"rawliteral(
             <div class="attitude-value" id="ap">0.0</div>
             <div class="attitude-label">Pitch °</div>
           </div>
+          <div class="attitude-box">
+            <div class="attitude-value" id="ay">0.0</div>
+            <div class="attitude-label">Yaw °</div>
+          </div>
         </div>
         <div class="loop-indicator">
           <span class="stat-label">Loop</span>
@@ -671,6 +675,7 @@ setInterval(() => {
   fetch('/data').then(res => res.json()).then(data => {
     document.getElementById("ar").innerText = data.ar.toFixed(1);
     document.getElementById("ap").innerText = data.ap.toFixed(1);
+    document.getElementById("ay").innerText = data.ay.toFixed(1);  // AJOUT
 
     // Loop time
     let lt = data.lt;
@@ -752,6 +757,7 @@ void telemetryTask(void * parameter) {
         String json = "{";
         json += "\"ar\":" + String(drone_data->angle_roll) + ",";
         json += "\"ap\":" + String(drone_data->angle_pitch) + ",";
+        json += "\"ay\":" + String(drone_data->angle_yaw) + ",";  // AJOUT
         json += "\"r1\":" + String(drone_data->channel_1) + ",";
         json += "\"r2\":" + String(drone_data->channel_2) + ",";
         json += "\"r3\":" + String(drone_data->channel_3) + ",";
@@ -760,7 +766,9 @@ void telemetryTask(void * parameter) {
         json += "\"mr\":" + String(drone_data->max_time_radio) + ",";
         json += "\"mi\":" + String(drone_data->max_time_imu) + ",";
         json += "\"ci\":" + String(drone_data->current_time_imu) + ",";
-        json += "\"mp\":" + String(drone_data->max_time_pid);
+        json += "\"mp\":" + String(drone_data->max_time_pid) + ",";
+        json += "\"gy\":" + String(drone_data->gyro_yaw_input) + ",";     // AJOUT: gyro yaw
+        json += "\"poy\":" + String(drone_data->pid_output_yaw);          // AJOUT: sortie PID yaw
         json += "}";
         request->send(200, "application/json", json);
     });

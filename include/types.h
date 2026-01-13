@@ -26,6 +26,7 @@ typedef struct {
     float gyro_yaw_input;
     float angle_roll;
     float angle_pitch;
+    float angle_yaw;          // AJOUT: angle Yaw
     float acc_total_vector;
 
     // PID

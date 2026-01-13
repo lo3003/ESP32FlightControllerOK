@@ -28,6 +28,7 @@ static float gyro_yaw_filt = 0.0f;
 // --- Filtres de Kalman pour Roll et Pitch ---
 static Kalman kalman_roll;
 static Kalman kalman_pitch;
+static float yaw_angle = 0.0f;  // AJOUT: intégration simple du Yaw
 static bool kalman_initialized = false;
 
 // ==================== SNAPSHOT IMU ====================
@@ -37,6 +38,7 @@ typedef struct {
     float gyro_yaw_input;
     float angle_roll;
     float angle_pitch;
+    float angle_yaw;          // AJOUT
     float acc_total_vector;
     unsigned long last_dur_us;
     unsigned long last_ok_ms;
@@ -143,7 +145,8 @@ static void imu_read_internal(DroneState *drone) {
     double gyro_pitch = -gyro_y_cal;
     long acc_pitch_val = acc_raw[0];
 
-    double gyro_yaw   = gyro_z_cal;  // <-- RETIRER le moins (pas d'inversion ici)
+    // CORRECTION: Inverser le signe du gyro Yaw
+    double gyro_yaw   = -gyro_z_cal;  // MODIFIÉ: ajout du signe moins
     long acc_yaw_val  = acc_raw[2];
 
     const float gyro_scale = 65.5f;
@@ -177,9 +180,9 @@ static void imu_read_internal(DroneState *drone) {
         angle_roll_acc = asinf((float)acc_roll_val / drone->acc_total_vector) * RAD_TO_DEG;
     }
 
-    // Trim mécanique
-    angle_roll_acc  += 0;
-    angle_pitch_acc += -4.0f;
+    // Trim mécanique (ajuster selon calibration physique du drone)
+    angle_roll_acc  += 0.0f;
+    angle_pitch_acc += 0.0f;
 
     // --- FILTRE DE KALMAN ---
     if (!kalman_initialized) {
@@ -201,6 +204,15 @@ static void imu_read_internal(DroneState *drone) {
         drone->angle_roll  = kalman_roll.update(angle_roll_acc, gyro_roll_dps, dt_s);
         drone->angle_pitch = kalman_pitch.update(angle_pitch_acc, gyro_pitch_dps, dt_s);
     }
+
+    // AJOUT: Intégration Yaw (pas de correction accéléromètre possible)
+    yaw_angle += gyro_yaw_dps * dt_s;
+    
+    // Normalisation -180 à +180
+    while (yaw_angle > 180.0f) yaw_angle -= 360.0f;
+    while (yaw_angle < -180.0f) yaw_angle += 360.0f;
+    
+    drone->angle_yaw = yaw_angle;
 
     // Compensation yaw - DESACTIVER POUR TEST
     #if 0  // <-- Mettre 1 pour réactiver
@@ -249,6 +261,7 @@ static void imu_task(void *parameter) {
             kalman_roll.setAngle(0.0f);
             kalman_pitch.setAngle(0.0f);
             kalman_initialized = false;
+            yaw_angle = 0.0f;  // AJOUT: reset angle yaw
             
             gyro_roll_filt = 0.0f;
             gyro_pitch_filt = 0.0f;
@@ -267,6 +280,7 @@ static void imu_task(void *parameter) {
         imu_snap.gyro_yaw_input   = imu_state.gyro_yaw_input;
         imu_snap.angle_roll       = imu_state.angle_roll;
         imu_snap.angle_pitch      = imu_state.angle_pitch;
+        imu_snap.angle_yaw        = imu_state.angle_yaw;  // AJOUT
         imu_snap.acc_total_vector = imu_state.acc_total_vector;
         imu_snap.last_dur_us      = dur;
         imu_snap.ok               = ok;
@@ -314,6 +328,7 @@ void imu_update(DroneState *drone) {
     drone->gyro_yaw_input   = s.gyro_yaw_input;
     drone->angle_roll       = s.angle_roll;
     drone->angle_pitch      = s.angle_pitch;
+    drone->angle_yaw        = s.angle_yaw;  // AJOUT
     drone->acc_total_vector = s.acc_total_vector;
     drone->current_time_imu = s.last_dur_us;
 }
