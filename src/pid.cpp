@@ -18,23 +18,20 @@ static unsigned long pid_inflight_timer = 0;
 // --- INITIALISATION DES PARAMETRES PID ---
 // Appelé au démarrage pour charger les valeurs par défaut "No Stress"
 void pid_init_params(DroneState *drone) {
-    // ROLL
-    drone->p_pitch_roll = 1.5;   // Doux
-    drone->i_pitch_roll = 0;  // Faible pour éviter le windup au début
-    drone->d_pitch_roll = 5.0;   // Amortissement
-
-    // PITCH (Copie du Roll)
-    // Les variables P/I/D sont partagées pour Roll/Pitch dans votre struct
+    // ROLL/PITCH - Valeurs plus agressives pour un vrai vol
+    drone->p_pitch_roll = 2.5;   // MODIFIÉ : était 1.5, maintenant plus réactif
+    drone->i_pitch_roll = 0.01;  // MODIFIÉ : était 0, maintenant actif pour corriger les dérives
+    drone->d_pitch_roll = 8.0;   // MODIFIÉ : était 5.0, plus d'amortissement
 
     // YAW
-    drone->p_yaw = 0.0;          // Standard
-    drone->i_yaw = 0.0;
+    drone->p_yaw = 2.0;          // MODIFIÉ : était 0.0
+    drone->i_yaw = 0.005;        // MODIFIÉ : était 0.0
     drone->d_yaw = 0.0;
 
-    // AUTO LEVEL (Stabilisation Angle)
-    drone->p_level = 7.0;        // Retour à plat progressif (3.0 max conseillé au début)
+    // AUTO LEVEL
+    drone->p_level = 5.0;        // MODIFIÉ : était 7.0, un peu moins agressif
     
-    Serial.println("PID Params Initialized (Smart & Safe Mode)");
+    Serial.println("PID Params Initialized (Flight-Ready Mode)");
 }
 
 void pid_init() {
@@ -52,31 +49,29 @@ void pid_reset_integral() {
 void pid_compute_setpoints(DroneState *drone) {
     // --- ROLL ---
     float input_roll = 0;
-    // Deadband (Zone morte centrale) pour éviter la dérive stick lâché
-    if(drone->channel_1 > 1508) input_roll = drone->channel_1 - 1508;
-    else if(drone->channel_1 < 1492) input_roll = drone->channel_1 - 1492;
+    // MODIFIÉ : Deadband réduit de 16µs à 6µs
+    if(drone->channel_1 > 1503) input_roll = drone->channel_1 - 1503;
+    else if(drone->channel_1 < 1497) input_roll = drone->channel_1 - 1497;
     
-    // Mode Angle : La consigne de vitesse dépend de l'angle actuel
-    // Formule : (Stick - Angle * P_Level) = Vitesse de rotation demandée
     input_roll -= drone->angle_roll * drone->p_level; 
-    drone->pid_setpoint_roll = input_roll / 3.0; // Diviseur sensibilité
+    drone->pid_setpoint_roll = input_roll / 1.5;  // MODIFIÉ : était /2.0, maintenant /1.5 pour plus d'autorité
 
     // --- PITCH ---
     float input_pitch = 0;
-    if(drone->channel_2 > 1508) input_pitch = drone->channel_2 - 1508;
-    else if(drone->channel_2 < 1492) input_pitch = drone->channel_2 - 1492;
+    // MODIFIÉ : Deadband réduit de 16µs à 6µs
+    if(drone->channel_2 > 1503) input_pitch = drone->channel_2 - 1503;
+    else if(drone->channel_2 < 1497) input_pitch = drone->channel_2 - 1497;
     
     input_pitch -= drone->angle_pitch * drone->p_level; 
-    drone->pid_setpoint_pitch = input_pitch / 3.0;
+    drone->pid_setpoint_pitch = input_pitch / 1.5;  // MODIFIÉ : était /2.0
 
     // --- YAW ---
     float input_yaw = 0;
-    // On n'autorise le Yaw que si on a un peu de gaz
     if(drone->channel_3 > 1050) { 
-        if(drone->channel_4 > 1508) input_yaw = (drone->channel_4 - 1508) / 3.0;
-        else if(drone->channel_4 < 1492) input_yaw = (drone->channel_4 - 1492) / 3.0;
+        if(drone->channel_4 > 1503) input_yaw = (drone->channel_4 - 1500);  // MODIFIÉ : supprimé /1.5
+        else if(drone->channel_4 < 1497) input_yaw = (drone->channel_4 - 1500);
     }
-    drone->pid_setpoint_yaw = input_yaw;  // <-- RETIRER le moins
+    drone->pid_setpoint_yaw = -input_yaw;  
 }
 
 // --- BOUCLE PID PRINCIPALE ---
