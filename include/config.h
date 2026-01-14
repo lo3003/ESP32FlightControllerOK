@@ -13,12 +13,16 @@
 
 // --- RADIO (S.BUS) ---
 #define PIN_SBUS_RX    4   
-#define D_FILTER_COEFF 0.18f  // <-- MODIFIÉ: était 0.3f, maintenant plus lisse
+#define D_FILTER_COEFF 0.18f 
 #define PIN_LED        5
 
 // --- I2C ---
 #define GYRO_ADDRESS   0x68
 #define I2C_SPEED      400000
+
+// Mettre à 1 si ton yaw est juste dans le mauvais sens (commande pilote inversée)
+#define IMU_INVERT_YAW 1
+#define RC_INVERT_YAW  0
 
 // --- PARAMETRES DE VOL (PID) ---
 #define PID_P_ROLL     1.5

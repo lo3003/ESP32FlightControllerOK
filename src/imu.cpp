@@ -146,8 +146,14 @@ static void imu_read_internal(DroneState *drone) {
     long acc_pitch_val = acc_raw[0];
 
     // CORRECTION: Inverser le signe du gyro Yaw
-    double gyro_yaw   = -gyro_z_cal;  // MODIFIÉ: ajout du signe moins
-    long acc_yaw_val  = acc_raw[2];
+       // YAW : selon l'orientation de la carte, il peut être nécessaire d'inverser le signe.
+    #if IMU_INVERT_YAW
+        double gyro_yaw = -gyro_z_cal;
+    #else
+        double gyro_yaw = gyro_z_cal;
+    #endif
+        long acc_yaw_val  = acc_raw[2];
+
 
     const float gyro_scale = 65.5f;
 
