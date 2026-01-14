@@ -41,7 +41,7 @@
 #define PID_MAX_YAW    400
 
 // --- REGLAGES MOTEURS ---
-#define MAX_THROTTLE_FLIGHT 1800 
+#define MAX_THROTTLE_FLIGHT 1700
 #define MIN_THROTTLE_IDLE   1050
 #define MOTOR_OFF           1000
 

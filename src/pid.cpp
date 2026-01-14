@@ -35,7 +35,7 @@ void pid_init_params(DroneState *drone) {
 
     // FEEDFORWARD (à tuner via Web)
     // Ordre de grandeur: 0.05 à 0.25
-    drone->ff_pitch_roll = 0.12f;
+    drone->ff_pitch_roll = 0.16f;
     drone->ff_yaw        = 0.10f;
 
     // AUTO LEVEL
