@@ -63,33 +63,33 @@ void pid_reset_integral() {
 void pid_compute_setpoints(DroneState *drone) {
     // --- ROLL (stick) ---
     float stick_roll = 0.0f;
-    if (drone->channel_1 > 1503)      stick_roll = (float)(drone->channel_1 - 1503);
-    else if (drone->channel_1 < 1497) stick_roll = (float)(drone->channel_1 - 1497);
+    if (drone->channel_1 > 1520)      stick_roll = (float)(drone->channel_1 - 1520);
+    else if (drone->channel_1 < 1480) stick_roll = (float)(drone->channel_1 - 1480);
 
     // FeedForward = uniquement la commande pilote (rate)
-    ff_sp_roll = stick_roll / 1.5f;
+    ff_sp_roll = stick_roll / 3.0f;
 
     // Self-level (outer loop)
     float input_roll = stick_roll - (drone->angle_roll * drone->p_level);
-    drone->pid_setpoint_roll = input_roll / 1.5f;
+    drone->pid_setpoint_roll = input_roll / 3.0f;
 
     // --- PITCH (stick) ---
     float stick_pitch = 0.0f;
-    if (drone->channel_2 > 1503)      stick_pitch = (float)(drone->channel_2 - 1503);
-    else if (drone->channel_2 < 1497) stick_pitch = (float)(drone->channel_2 - 1497);
+    if (drone->channel_2 > 1520)      stick_pitch = (float)(drone->channel_2 - 1520);
+    else if (drone->channel_2 < 1480) stick_pitch = (float)(drone->channel_2 - 1480);
 
-    ff_sp_pitch = stick_pitch / 1.5f;
+    ff_sp_pitch = stick_pitch / 3.0f;
 
     float input_pitch = stick_pitch - (drone->angle_pitch * drone->p_level);
-    drone->pid_setpoint_pitch = input_pitch / 1.5f;
+    drone->pid_setpoint_pitch = input_pitch / 3.0f;
 
     // --- YAW (stick, rate only) ---
     float stick_yaw = 0.0f;
 
     // Autorise yaw seulement si on est au-dessus d'un minimum de gaz
     if (drone->channel_3 > 1050) {
-        if (drone->channel_4 > 1503)      stick_yaw = (float)(drone->channel_4 - 1500);
-        else if (drone->channel_4 < 1497) stick_yaw = (float)(drone->channel_4 - 1500);
+        if (drone->channel_4 > 1520)      stick_yaw = (float)(drone->channel_4 - 1520);
+        else if (drone->channel_4 < 1480) stick_yaw = (float)(drone->channel_4 - 1480);
     }
 
 #if RC_INVERT_YAW
