@@ -1,44 +1,48 @@
 #ifndef TYPES_H
 #define TYPES_H
 
+// Modes de vol
 typedef enum {
     MODE_SAFE,           // Moteurs coupés, LED Fixe
     MODE_CALIBRATION,    // Mode spécial Calibration ESC
     MODE_SETUP,          // Mode spécial Setup Wizard
     MODE_PRE_ARM,        // Attente armement
     MODE_ARMED,          // Moteurs au ralenti
-    MODE_FLYING ,
-    MODE_WEB_TEST       // Mode de test via interface web
+    MODE_FLYING,         // Boucle de vol complète
+    MODE_WEB_TEST        // Mode de test via interface web
 } FlightMode;
 
+// Etat global (partagé entre les modules)
 typedef struct {
+    // Mode
     FlightMode current_mode;
-    
-    // Radio (valeurs en us : 1000-2000)
-    int channel_1; 
-    int channel_2; 
-    int channel_3; 
-    int channel_4; 
+
+    // Radio (1000-2000)
+    int channel_1; // Roll
+    int channel_2; // Pitch
+    int channel_3; // Throttle
+    int channel_4; // Yaw
 
     // IMU
-    float gyro_roll_input;
-    float gyro_pitch_input;
-    float gyro_yaw_input;
-    float angle_roll;
-    float angle_pitch;
-    float angle_yaw;          // AJOUT: angle Yaw
+    float gyro_roll_input;   // deg/s
+    float gyro_pitch_input;  // deg/s
+    float gyro_yaw_input;    // deg/s
+    float angle_roll;        // deg
+    float angle_pitch;       // deg
+    float angle_yaw;         // deg (intégré gyro, pas utilisé pour PID yaw)
     float acc_total_vector;
 
-    // PID
+    // PID setpoints (rate)
     float pid_setpoint_roll;
     float pid_setpoint_pitch;
     float pid_setpoint_yaw;
-    
+
+    // PID outputs (mixage)
     float pid_output_roll;
     float pid_output_pitch;
     float pid_output_yaw;
 
-    // --- REGLAGES PID (WEB TUNING) ---
+    // Gains PID
     float p_pitch_roll;
     float i_pitch_roll;
     float d_pitch_roll;
@@ -47,16 +51,24 @@ typedef struct {
     float i_yaw;
     float d_yaw;
 
-    float p_level; // Force de l'auto-stabilisation
+    // FeedForward (gain appliqué à la consigne pilote en RATE)
+    float ff_pitch_roll;  // commun roll/pitch
+    float ff_yaw;
 
+    // Auto-level (outer loop)
+    float p_level;
+
+    // Web test
     int web_test_vals[5];
+
+    // Timing / debug
     unsigned long loop_time;
     unsigned long max_time_radio;
     unsigned long max_time_imu;
     unsigned long max_time_pid;
-    
-    unsigned long current_time_imu;  
-    
+
+    // Durée IMU (task) exposée au main
+    unsigned long current_time_imu;
 } DroneState;
 
 #endif

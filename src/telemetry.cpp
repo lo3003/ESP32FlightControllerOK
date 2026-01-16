@@ -556,12 +556,16 @@ const char index_html[] PROGMEM = R"rawliteral(
           <div class="pid-row"><label>P</label><input type="number" step="0.1" id="ppr"></div>
           <div class="pid-row"><label>I</label><input type="number" step="0.01" id="ipr"></div>
           <div class="pid-row"><label>D</label><input type="number" step="1.0" id="dpr"></div>
+          <div class="pid-row"><label>FF</label><input type="number" step="0.01" id="ffpr"></div>
+
         </div>
         <div class="pid-section">
           <div class="pid-title">Yaw</div>
           <div class="pid-row"><label>P</label><input type="number" step="0.1" id="py"></div>
           <div class="pid-row"><label>I</label><input type="number" step="0.01" id="iy"></div>
           <div class="pid-row"><label>D</label><input type="number" step="1.0" id="dy"></div>
+          <div class="pid-row"><label>FF</label><input type="number" step="0.01" id="ffy"></div>
+
         </div>
         <div class="pid-section">
           <div class="pid-title">Auto Level</div>
@@ -613,6 +617,9 @@ function loadPID() {
     document.getElementById('iy').value = data.iy;
     document.getElementById('dy').value = data.dy;
     document.getElementById('pl').value = data.pl;
+    document.getElementById('ffpr').value = data.ffpr;
+    document.getElementById('ffy').value = data.ffy;
+
   });
 }
 
@@ -623,7 +630,7 @@ function sendPID() {
   btn.disabled = true;
   btn.textContent = 'Updating...';
   
-  let params = ['ppr','ipr','dpr','py','iy','dy','pl'].map(id => `${id}=${document.getElementById(id).value}`).join('&');
+  let params = ['ppr','ipr','dpr','py','iy','dy','pl','ffpr','ffy'].map(id => `${id}=${document.getElementById(id).value}`).join('&');
   
   fetch(`/set_pid?${params}`)
     .then(res => {
@@ -788,6 +795,8 @@ void telemetryTask(void * parameter) {
         json += "\"py\":" + String(drone_data->p_yaw) + ",";
         json += "\"iy\":" + String(drone_data->i_yaw) + ",";
         json += "\"dy\":" + String(drone_data->d_yaw) + ",";
+        json += "\"ffpr\":" + String(drone_data->ff_pitch_roll) + ",";
+        json += "\"ffy\":" + String(drone_data->ff_yaw) + ",";
         json += "\"pl\":" + String(drone_data->p_level);
         json += "}";
         request->send(200, "application/json", json);
@@ -801,6 +810,9 @@ void telemetryTask(void * parameter) {
         if(request->hasParam("iy")) drone_data->i_yaw = request->getParam("iy")->value().toFloat();
         if(request->hasParam("dy")) drone_data->d_yaw = request->getParam("dy")->value().toFloat();
         if(request->hasParam("pl")) drone_data->p_level = request->getParam("pl")->value().toFloat();
+        if(request->hasParam("ffpr")) drone_data->ff_pitch_roll = request->getParam("ffpr")->value().toFloat();
+        if(request->hasParam("ffy")) drone_data->ff_yaw = request->getParam("ffy")->value().toFloat();
+
         request->send(200, "text/plain", "OK");
     });
 
