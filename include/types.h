@@ -31,6 +31,11 @@ typedef struct {
     float angle_pitch;       // deg
     float angle_yaw;         // deg (intégré gyro, pas utilisé pour PID yaw)
     float acc_total_vector;
+    
+    // Accélération normalisée (en G) pour PoC drift
+    float acc_x;             // G (axe X)
+    float acc_y;             // G (axe Y)
+    float acc_z;             // G (axe Z)
 
     // PID setpoints (rate)
     float pid_setpoint_roll;

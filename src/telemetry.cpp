@@ -445,6 +445,69 @@ const char index_html[] PROGMEM = R"rawliteral(
         grid-template-columns: repeat(3, 1fr);
       }
     }
+
+    /* 3D Cube CSS */
+    .cube-scene {
+      width: 150px;
+      height: 150px;
+      margin: 0 auto;
+      perspective: 400px;
+    }
+    .cube {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      transform-style: preserve-3d;
+      transition: transform 0.1s ease-out;
+    }
+    .cube-face {
+      position: absolute;
+      width: 150px;
+      height: 150px;
+      border: 2px solid var(--primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 0.7rem;
+      color: var(--text);
+      backface-visibility: visible;
+    }
+    .cube-face.front  { background: rgba(59, 130, 246, 0.3); transform: rotateY(0deg) translateZ(75px); }
+    .cube-face.back   { background: rgba(59, 130, 246, 0.2); transform: rotateY(180deg) translateZ(75px); }
+    .cube-face.right  { background: rgba(34, 197, 94, 0.3); transform: rotateY(90deg) translateZ(75px); }
+    .cube-face.left   { background: rgba(34, 197, 94, 0.2); transform: rotateY(-90deg) translateZ(75px); }
+    .cube-face.top    { background: rgba(239, 68, 68, 0.3); transform: rotateX(90deg) translateZ(75px); }
+    .cube-face.bottom { background: rgba(239, 68, 68, 0.2); transform: rotateX(-90deg) translateZ(75px); }
+
+    /* Drift Map */
+    .drift-map-container {
+      background: var(--input-bg);
+      border-radius: 8px;
+      padding: 12px;
+      border: 1px solid var(--card-border);
+    }
+    .drift-map-container canvas {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    .drift-map-legend {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      margin-top: 8px;
+      font-size: 0.75rem;
+    }
+
+    /* Accel Graph */
+    #accelGraph {
+      width: 100%;
+      height: auto;
+      background: var(--input-bg);
+      border-radius: 8px;
+      border: 1px solid var(--card-border);
+    }
   </style>
 </head>
 <body>
@@ -592,6 +655,133 @@ const char index_html[] PROGMEM = R"rawliteral(
         </div>
         <button class="btn btn-danger" id="stopBtn" onclick="stopAll()">Emergency Stop</button>
       </div>
+      <!-- Inertial Drift Proof Card - FULL WIDTH -->
+      <div class="card" style="grid-column: 1 / -1;">
+        <div class="card-header">
+          <div class="icon">🎯</div>
+          <h3>Inertial Drift Proof (PoC) — Why GPS/VIO is Mandatory</h3>
+        </div>
+        <div style="display: flex; gap: 24px; flex-wrap: wrap;">
+          <!-- 3D Cube Visualization -->
+          <div style="flex: 1; min-width: 200px;">
+            <div style="text-align: center; margin-bottom: 12px;">
+              <span class="stat-label">3D Attitude (Live)</span>
+            </div>
+            <div class="cube-scene">
+              <div class="cube" id="cube3d">
+                <div class="cube-face front">FRONT</div>
+                <div class="cube-face back">BACK</div>
+                <div class="cube-face right">RIGHT</div>
+                <div class="cube-face left">LEFT</div>
+                <div class="cube-face top">TOP</div>
+                <div class="cube-face bottom">BOT</div>
+              </div>
+            </div>
+          </div>
+          <!-- Integration Simulator -->
+          <div style="flex: 1; min-width: 280px;">
+            <div style="text-align: center; margin-bottom: 12px;">
+              <span class="stat-label">Double Integration Simulator</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Accel X (G)</span>
+              <span class="stat-value" id="drift_ax">0.000</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Accel Y (G)</span>
+              <span class="stat-value" id="drift_ay">0.000</span>
+            </div>
+            <div class="stat-row" style="border-top: 2px solid var(--warning);">
+              <span class="stat-label">Velocity X (m/s)</span>
+              <span class="stat-value warning" id="drift_vx">0.00</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Velocity Y (m/s)</span>
+              <span class="stat-value warning" id="drift_vy">0.00</span>
+            </div>
+            <div class="stat-row" style="border-top: 2px solid var(--danger);">
+              <span class="stat-label">Position X (m)</span>
+              <span class="stat-value danger" id="drift_px">0.00</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Position Y (m)</span>
+              <span class="stat-value danger" id="drift_py">0.00</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Total Drift (m)</span>
+              <span class="stat-value danger" id="drift_total" style="font-size: 1.1rem;">0.00</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Elapsed Time</span>
+              <span class="stat-value" id="drift_time">0.0 s</span>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 16px;">
+              <button class="btn btn-primary" id="driftStartBtn" onclick="toggleDriftIntegration()">Start Integration</button>
+              <button class="btn btn-danger" onclick="resetDriftIntegration()">Reset</button>
+            </div>
+          </div>
+          <!-- 3D Drift Map -->
+          <div style="flex: 2; min-width: 350px;">
+            <div style="text-align: center; margin-bottom: 12px;">
+              <span class="stat-label">3D Position Drift Map (XY Plane)</span>
+            </div>
+            <div class="drift-map-container">
+              <canvas id="driftMap3D" width="400" height="300"></canvas>
+              <div class="drift-map-legend">
+                <span style="color: var(--success);">● Origin</span>
+                <span style="color: var(--warning);">● Trail</span>
+                <span style="color: var(--danger);">● Current</span>
+              </div>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 8px; justify-content: center;">
+              <button class="btn btn-primary" style="width: auto; padding: 8px 16px;" onclick="resetDriftMap()">Clear Trail</button>
+              <select id="driftMapScale" onchange="updateDriftMapScale()" style="padding: 8px; background: var(--input-bg); color: var(--text); border: 1px solid var(--card-border); border-radius: 6px;">
+                <option value="1">Scale: 1m</option>
+                <option value="5">Scale: 5m</option>
+                <option value="10" selected>Scale: 10m</option>
+                <option value="50">Scale: 50m</option>
+                <option value="100">Scale: 100m</option>
+                <option value="500">Scale: 500m</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <p style="color: var(--text-muted); font-size: 0.7rem; margin-top: 16px; text-align: center;">
+          ⚠️ Observe how position drifts to infinity even when stationary. This proves GPS/VIO is mandatory for position hold.
+        </p>
+      </div>
+
+      <!-- Accelerometer Graph Card - FULL WIDTH -->
+      <div class="card" style="grid-column: 1 / -1;">
+        <div class="card-header">
+          <div class="icon">📈</div>
+          <h3>Accelerometer Real-Time Graph</h3>
+        </div>
+        <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+          <div style="flex: 3; min-width: 500px;">
+            <canvas id="accelGraph" width="700" height="250"></canvas>
+          </div>
+          <div style="flex: 1; min-width: 150px;">
+            <div class="stat-row">
+              <span class="stat-label" style="color: #ef4444;">Ax (G)</span>
+              <span class="stat-value" id="graph_ax">0.000</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label" style="color: #22c55e;">Ay (G)</span>
+              <span class="stat-value" id="graph_ay">0.000</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label" style="color: #3b82f6;">Az (G)</span>
+              <span class="stat-value" id="graph_az">0.000</span>
+            </div>
+            <div class="stat-row" style="margin-top: 12px;">
+              <span class="stat-label">Noise (σ)</span>
+              <span class="stat-value warning" id="graph_noise">0.000</span>
+            </div>
+            <button class="btn btn-primary" style="margin-top: 16px;" onclick="clearAccelGraph()">Clear Graph</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -683,6 +873,9 @@ setInterval(() => {
     document.getElementById("ar").innerText = data.ar.toFixed(1);
     document.getElementById("ap").innerText = data.ap.toFixed(1);
     document.getElementById("ay").innerText = data.ay.toFixed(1);  // AJOUT
+    
+    // Update Yaw for cube
+    lastYaw = data.ay;
 
     // Loop time
     let lt = data.lt;
@@ -706,6 +899,11 @@ setInterval(() => {
     document.getElementById("rx_y").value = data.r4; document.getElementById("val_y").innerText = data.r4;
     document.getElementById("rx_p").value = data.r2; document.getElementById("val_p").innerText = data.r2;
     document.getElementById("rx_r").value = data.r1; document.getElementById("val_r").innerText = data.r1;
+    
+    // Drift PoC - Update with accelerometer data
+    if (typeof updateDriftSimulation === 'function') {
+      updateDriftSimulation(data.ax, data.ay, data.az, data.ar, data.ap);
+    }
   });
 }, 200);
 
@@ -746,7 +944,342 @@ function stopAll() {
     });
 }
 
-window.onload = loadPID;
+window.onload = function() {
+  loadPID();
+  initAccelGraph();
+  initDriftMap();
+};
+
+// ==================== ACCELEROMETER GRAPH ====================
+let accelGraphCtx;
+let accelDataX = [], accelDataY = [], accelDataZ = [];
+const GRAPH_MAX_POINTS = 200;
+
+function initAccelGraph() {
+  const canvas = document.getElementById('accelGraph');
+  if (!canvas) return;
+  accelGraphCtx = canvas.getContext('2d');
+}
+
+function clearAccelGraph() {
+  accelDataX = []; accelDataY = []; accelDataZ = [];
+}
+
+function updateAccelGraph(ax, ay, az) {
+  if (!accelGraphCtx) return;
+  
+  // Store data
+  accelDataX.push(ax); accelDataY.push(ay); accelDataZ.push(az);
+  if (accelDataX.length > GRAPH_MAX_POINTS) {
+    accelDataX.shift(); accelDataY.shift(); accelDataZ.shift();
+  }
+  
+  // Update display values
+  document.getElementById('graph_ax').innerText = ax.toFixed(4);
+  document.getElementById('graph_ay').innerText = ay.toFixed(4);
+  document.getElementById('graph_az').innerText = az.toFixed(4);
+  
+  // Calculate noise (standard deviation of last 50 samples)
+  if (accelDataX.length > 10) {
+    const last50 = accelDataX.slice(-50);
+    const mean = last50.reduce((a,b) => a+b, 0) / last50.length;
+    const variance = last50.reduce((a,b) => a + (b-mean)*(b-mean), 0) / last50.length;
+    document.getElementById('graph_noise').innerText = Math.sqrt(variance).toFixed(4);
+  }
+  
+  // Draw graph
+  const canvas = accelGraphCtx.canvas;
+  const w = canvas.width, h = canvas.height;
+  accelGraphCtx.fillStyle = '#0f172a';
+  accelGraphCtx.fillRect(0, 0, w, h);
+  
+  // Grid
+  accelGraphCtx.strokeStyle = '#334155';
+  accelGraphCtx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = h * i / 4;
+    accelGraphCtx.beginPath();
+    accelGraphCtx.moveTo(0, y);
+    accelGraphCtx.lineTo(w, y);
+    accelGraphCtx.stroke();
+  }
+  
+  // Labels
+  accelGraphCtx.fillStyle = '#94a3b8';
+  accelGraphCtx.font = '10px Consolas';
+  accelGraphCtx.fillText('+2G', 5, 15);
+  accelGraphCtx.fillText('+1G', 5, h/4 + 5);
+  accelGraphCtx.fillText(' 0G', 5, h/2 + 5);
+  accelGraphCtx.fillText('-1G', 5, 3*h/4 + 5);
+  accelGraphCtx.fillText('-2G', 5, h - 5);
+  
+  // Draw lines
+  const drawLine = (data, color) => {
+    if (data.length < 2) return;
+    accelGraphCtx.strokeStyle = color;
+    accelGraphCtx.lineWidth = 2;
+    accelGraphCtx.beginPath();
+    for (let i = 0; i < data.length; i++) {
+      const x = (i / GRAPH_MAX_POINTS) * w;
+      const y = h/2 - (data[i] / 2) * (h/2); // Scale: -2G to +2G
+      if (i === 0) accelGraphCtx.moveTo(x, y);
+      else accelGraphCtx.lineTo(x, y);
+    }
+    accelGraphCtx.stroke();
+  };
+  
+  drawLine(accelDataX, '#ef4444'); // Red for X
+  drawLine(accelDataY, '#22c55e'); // Green for Y
+  drawLine(accelDataZ, '#3b82f6'); // Blue for Z
+}
+
+// ==================== 3D DRIFT MAP ====================
+let driftMapCtx;
+let driftTrail = [];
+let driftMapScale = 10; // meters per half-width
+const DRIFT_TRAIL_MAX = 500;
+
+function initDriftMap() {
+  const canvas = document.getElementById('driftMap3D');
+  if (!canvas) return;
+  driftMapCtx = canvas.getContext('2d');
+  drawDriftMap();
+}
+
+function resetDriftMap() {
+  driftTrail = [];
+  drawDriftMap();
+}
+
+function updateDriftMapScale() {
+  driftMapScale = parseFloat(document.getElementById('driftMapScale').value);
+  drawDriftMap();
+}
+
+function updateDriftMap(px, py) {
+  if (!driftMapCtx) return;
+  
+  driftTrail.push({x: px, y: py, t: Date.now()});
+  if (driftTrail.length > DRIFT_TRAIL_MAX) driftTrail.shift();
+  
+  drawDriftMap();
+}
+
+function drawDriftMap() {
+  if (!driftMapCtx) return;
+  
+  const canvas = driftMapCtx.canvas;
+  const w = canvas.width, h = canvas.height;
+  const cx = w / 2, cy = h / 2;
+  
+  // Clear with perspective gradient
+  const grad = driftMapCtx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(w,h)/2);
+  grad.addColorStop(0, '#1e293b');
+  grad.addColorStop(1, '#0f172a');
+  driftMapCtx.fillStyle = grad;
+  driftMapCtx.fillRect(0, 0, w, h);
+  
+  // Grid with perspective effect
+  driftMapCtx.strokeStyle = '#334155';
+  driftMapCtx.lineWidth = 1;
+  
+  // Concentric circles (distance rings)
+  for (let r = 1; r <= 4; r++) {
+    const radius = (r / 4) * Math.min(cx, cy) * 0.9;
+    driftMapCtx.beginPath();
+    driftMapCtx.arc(cx, cy, radius, 0, Math.PI * 2);
+    driftMapCtx.stroke();
+    
+    // Distance label
+    driftMapCtx.fillStyle = '#64748b';
+    driftMapCtx.font = '10px Consolas';
+    const dist = (r / 4 * driftMapScale).toFixed(0);
+    driftMapCtx.fillText(dist + 'm', cx + radius + 3, cy);
+  }
+  
+  // Cross axes
+  driftMapCtx.beginPath();
+  driftMapCtx.moveTo(0, cy); driftMapCtx.lineTo(w, cy);
+  driftMapCtx.moveTo(cx, 0); driftMapCtx.lineTo(cx, h);
+  driftMapCtx.stroke();
+  
+  // Axis labels
+  driftMapCtx.fillStyle = '#94a3b8';
+  driftMapCtx.font = '12px Consolas';
+  driftMapCtx.fillText('+X', w - 20, cy - 5);
+  driftMapCtx.fillText('-X', 5, cy - 5);
+  driftMapCtx.fillText('+Y', cx + 5, 15);
+  driftMapCtx.fillText('-Y', cx + 5, h - 5);
+  
+  // Origin marker
+  driftMapCtx.fillStyle = '#22c55e';
+  driftMapCtx.beginPath();
+  driftMapCtx.arc(cx, cy, 6, 0, Math.PI * 2);
+  driftMapCtx.fill();
+  
+  // Convert position to screen coords
+  const toScreen = (px, py) => {
+    const scale = Math.min(cx, cy) * 0.9 / driftMapScale;
+    return {
+      x: cx + px * scale,
+      y: cy - py * scale // Y inverted
+    };
+  };
+  
+  // Draw trail with fade effect
+  if (driftTrail.length > 1) {
+    for (let i = 1; i < driftTrail.length; i++) {
+      const p0 = toScreen(driftTrail[i-1].x, driftTrail[i-1].y);
+      const p1 = toScreen(driftTrail[i].x, driftTrail[i].y);
+      
+      const alpha = 0.3 + 0.7 * (i / driftTrail.length);
+      driftMapCtx.strokeStyle = `rgba(251, 191, 36, ${alpha})`;
+      driftMapCtx.lineWidth = 2;
+      driftMapCtx.beginPath();
+      driftMapCtx.moveTo(p0.x, p0.y);
+      driftMapCtx.lineTo(p1.x, p1.y);
+      driftMapCtx.stroke();
+    }
+  }
+  
+  // Current position marker
+  if (driftTrail.length > 0) {
+    const last = driftTrail[driftTrail.length - 1];
+    const p = toScreen(last.x, last.y);
+    
+    // Glow effect
+    const glow = driftMapCtx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 15);
+    glow.addColorStop(0, 'rgba(239, 68, 68, 0.8)');
+    glow.addColorStop(1, 'rgba(239, 68, 68, 0)');
+    driftMapCtx.fillStyle = glow;
+    driftMapCtx.beginPath();
+    driftMapCtx.arc(p.x, p.y, 15, 0, Math.PI * 2);
+    driftMapCtx.fill();
+    
+    // Solid center
+    driftMapCtx.fillStyle = '#ef4444';
+    driftMapCtx.beginPath();
+    driftMapCtx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+    driftMapCtx.fill();
+  }
+}
+
+// ==================== INERTIAL DRIFT PROOF ====================
+let driftIntegrating = false;
+let driftVelX = 0, driftVelY = 0;
+let driftPosX = 0, driftPosY = 0;
+let driftStartTime = 0;
+let lastAccX = 0, lastAccY = 0, lastAccZ = 0;
+let lastRoll = 0, lastPitch = 0, lastYaw = 0;
+const G = 9.81; // m/s²
+const DT = 0.2; // 200ms polling interval
+
+function toggleDriftIntegration() {
+  driftIntegrating = !driftIntegrating;
+  const btn = document.getElementById('driftStartBtn');
+  if (driftIntegrating) {
+    driftStartTime = Date.now();
+    btn.textContent = 'Stop Integration';
+    btn.classList.remove('btn-primary');
+    btn.classList.add('btn-danger');
+  } else {
+    btn.textContent = 'Start Integration';
+    btn.classList.remove('btn-danger');
+    btn.classList.add('btn-primary');
+  }
+}
+
+function resetDriftIntegration() {
+  driftIntegrating = false;
+  driftVelX = 0; driftVelY = 0;
+  driftPosX = 0; driftPosY = 0;
+  driftStartTime = 0;
+  document.getElementById('drift_vx').innerText = '0.00';
+  document.getElementById('drift_vy').innerText = '0.00';
+  document.getElementById('drift_px').innerText = '0.00';
+  document.getElementById('drift_py').innerText = '0.00';
+  document.getElementById('drift_total').innerText = '0.00';
+  document.getElementById('drift_time').innerText = '0.0 s';
+  const btn = document.getElementById('driftStartBtn');
+  btn.textContent = 'Start Integration';
+  btn.classList.remove('btn-danger');
+  btn.classList.add('btn-primary');
+  resetDriftMap();
+}
+
+function updateDriftSimulation(ax, ay, az, roll, pitch) {
+  // Store raw values for display
+  lastAccX = ax; lastAccY = ay; lastAccZ = az;
+  lastRoll = roll; lastPitch = pitch;
+  
+  document.getElementById('drift_ax').innerText = ax.toFixed(4);
+  document.getElementById('drift_ay').innerText = ay.toFixed(4);
+  
+  // Update accelerometer graph
+  updateAccelGraph(ax, ay, az);
+  
+  // Update 3D cube rotation
+  const cube = document.getElementById('cube3d');
+  if (cube) {
+    cube.style.transform = `rotateX(${-pitch}deg) rotateY(${lastYaw}deg) rotateZ(${-roll}deg)`;
+  }
+  
+  if (!driftIntegrating) {
+    // Still update drift map with current position even if not integrating
+    if (driftTrail.length === 0) drawDriftMap();
+    return;
+  }
+  
+  // Naive gravity compensation based on angles
+  // This is intentionally imperfect to show drift
+  const rollRad = roll * Math.PI / 180;
+  const pitchRad = pitch * Math.PI / 180;
+  
+  // Remove estimated gravity component (simplified)
+  // Real gravity projects: gx = -sin(pitch), gy = sin(roll)*cos(pitch), gz = cos(roll)*cos(pitch)
+  const gx_est = -Math.sin(pitchRad);
+  const gy_est = Math.sin(rollRad) * Math.cos(pitchRad);
+  
+  // Linear acceleration (with noise and bias - this is the problem!)
+  const linAccX = (ax - gx_est) * G;
+  const linAccY = (ay - gy_est) * G;
+  
+  // First integration: Acceleration -> Velocity
+  driftVelX += linAccX * DT;
+  driftVelY += linAccY * DT;
+  
+  // Second integration: Velocity -> Position
+  driftPosX += driftVelX * DT;
+  driftPosY += driftVelY * DT;
+  
+  // Update display
+  document.getElementById('drift_vx').innerText = driftVelX.toFixed(2);
+  document.getElementById('drift_vy').innerText = driftVelY.toFixed(2);
+  document.getElementById('drift_px').innerText = driftPosX.toFixed(2);
+  document.getElementById('drift_py').innerText = driftPosY.toFixed(2);
+  
+  const totalDrift = Math.sqrt(driftPosX*driftPosX + driftPosY*driftPosY);
+  document.getElementById('drift_total').innerText = totalDrift.toFixed(2);
+  
+  const elapsed = (Date.now() - driftStartTime) / 1000;
+  document.getElementById('drift_time').innerText = elapsed.toFixed(1) + ' s';
+  
+  // Update 3D drift map
+  updateDriftMap(driftPosX, driftPosY);
+  
+  // Auto-scale if drift exceeds current scale
+  if (totalDrift > driftMapScale * 0.8) {
+    const scaleSelect = document.getElementById('driftMapScale');
+    const options = [1, 5, 10, 50, 100, 500];
+    for (const opt of options) {
+      if (totalDrift < opt * 0.8) {
+        scaleSelect.value = opt;
+        driftMapScale = opt;
+        break;
+      }
+    }
+  }
+}
 </script>
 </body>
 </html>
@@ -775,7 +1308,10 @@ void telemetryTask(void * parameter) {
         json += "\"ci\":" + String(drone_data->current_time_imu) + ",";
         json += "\"mp\":" + String(drone_data->max_time_pid) + ",";
         json += "\"gy\":" + String(drone_data->gyro_yaw_input) + ",";     // AJOUT: gyro yaw
-        json += "\"poy\":" + String(drone_data->pid_output_yaw);          // AJOUT: sortie PID yaw
+        json += "\"poy\":" + String(drone_data->pid_output_yaw) + ",";    // AJOUT: sortie PID yaw
+        json += "\"ax\":" + String(drone_data->acc_x, 4) + ",";           // Accélération X (G)
+        json += "\"ay\":" + String(drone_data->acc_y, 4) + ",";           // Accélération Y (G)
+        json += "\"az\":" + String(drone_data->acc_z, 4);                 // Accélération Z (G)
         json += "}";
         request->send(200, "application/json", json);
     });

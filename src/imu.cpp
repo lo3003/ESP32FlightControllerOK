@@ -40,6 +40,9 @@ typedef struct {
     float angle_pitch;
     float angle_yaw;          // AJOUT
     float acc_total_vector;
+    float acc_x;              // Accélération X en G
+    float acc_y;              // Accélération Y en G
+    float acc_z;              // Accélération Z en G
     unsigned long last_dur_us;
     unsigned long last_ok_ms;
     bool ok;
@@ -176,6 +179,12 @@ static void imu_read_internal(DroneState *drone) {
                                     (float)(acc_pitch_val * acc_pitch_val) +
                                     (float)(acc_yaw_val * acc_yaw_val));
 
+    // Accélération normalisée en G (1G = 4096 LSB pour ±8g)
+    const float ACC_SCALE = 4096.0f;
+    drone->acc_x = (float)acc_pitch_val / ACC_SCALE;  // X = acc_pitch
+    drone->acc_y = (float)acc_roll_val / ACC_SCALE;   // Y = acc_roll
+    drone->acc_z = (float)acc_yaw_val / ACC_SCALE;    // Z = acc_z
+
     // Calcul angles accéléromètre
     float angle_pitch_acc = 0.0f, angle_roll_acc = 0.0f;
 
@@ -288,6 +297,9 @@ static void imu_task(void *parameter) {
         imu_snap.angle_pitch      = imu_state.angle_pitch;
         imu_snap.angle_yaw        = imu_state.angle_yaw;  // AJOUT
         imu_snap.acc_total_vector = imu_state.acc_total_vector;
+        imu_snap.acc_x            = imu_state.acc_x;
+        imu_snap.acc_y            = imu_state.acc_y;
+        imu_snap.acc_z            = imu_state.acc_z;
         imu_snap.last_dur_us      = dur;
         imu_snap.ok               = ok;
         if (ok) imu_snap.last_ok_ms = millis();
@@ -336,6 +348,9 @@ void imu_update(DroneState *drone) {
     drone->angle_pitch      = s.angle_pitch;
     drone->angle_yaw        = s.angle_yaw;  // AJOUT
     drone->acc_total_vector = s.acc_total_vector;
+    drone->acc_x            = s.acc_x;
+    drone->acc_y            = s.acc_y;
+    drone->acc_z            = s.acc_z;
     drone->current_time_imu = s.last_dur_us;
 }
 
