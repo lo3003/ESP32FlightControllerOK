@@ -8,6 +8,9 @@
 #define PIN_MOTOR_3    25
 #define PIN_MOTOR_4    26
 
+// --- BATTERIE ---
+#define PIN_BATTERY    34
+#define BAT_SCALE      5.88f  // Calibré: 12.19V mesurés pour 2.09V lus
 
 #define ESC_FREQ       250 
 

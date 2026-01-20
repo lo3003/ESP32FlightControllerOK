@@ -23,6 +23,8 @@ void setup() {
     Wire.setTimeOut(1);
 
     pinMode(PIN_LED, OUTPUT);
+    pinMode(PIN_BATTERY, INPUT);
+    analogReadResolution(12);
 
     motors_init();
     radio_init();
@@ -69,6 +71,14 @@ void setup() {
 
 void loop() {
     unsigned long t_start = micros();
+
+    // Lecture tension batterie (filtrée)
+    static float vbat_filter = 11.1f;
+    int raw = analogRead(PIN_BATTERY);
+    float v_pin = (raw / 4095.0f) * 3.3f;
+    float v_bat = v_pin * BAT_SCALE;
+    vbat_filter = (vbat_filter * 0.99f) + (v_bat * 0.01f);
+    drone.voltage_bat = vbat_filter;
 
     radio_update(&drone);
     unsigned long t_radio = micros();

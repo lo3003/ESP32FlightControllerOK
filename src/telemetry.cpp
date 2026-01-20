@@ -706,6 +706,10 @@ const char index_html[] PROGMEM = R"rawliteral(
           <span class="stat-label">PID / Moteurs</span>
           <span class="stat-value" id="max_pid">0</span>
         </div>
+        <div class="stat-row">
+          <span class="stat-label">Batterie</span>
+          <span class="stat-value" id="disp_bat" style="font-size:1.2rem;">0.0 V</span>
+        </div>
         <button class="btn btn-primary" style="margin-top:16px" onclick="resetCounters(this)">Réinitialiser</button>
       </div>
 
@@ -1072,6 +1076,13 @@ setInterval(() => {
     document.getElementById("cur_imu").innerText = data.ci;
     document.getElementById("max_imu").innerText = data.mi;
     document.getElementById("max_pid").innerText = data.mp;
+
+    // Batterie
+    let batEl = document.getElementById("disp_bat");
+    batEl.innerText = data.vb.toFixed(1) + " V";
+    if (data.vb < 10.5) { batEl.style.color = "var(--danger)"; }
+    else if (data.vb < 11.1) { batEl.style.color = "var(--warning)"; }
+    else { batEl.style.color = "var(--success)"; }
 
     // Radio
     document.getElementById("rx_t").value = data.r3; document.getElementById("val_t").innerText = data.r3;
@@ -1648,7 +1659,8 @@ void telemetryTask(void * parameter) {
         json += "\"poy\":" + String(drone_data->pid_output_yaw) + ",";    // AJOUT: sortie PID yaw
         json += "\"ax\":" + String(drone_data->acc_x, 4) + ",";           // Accélération X (G)
         json += "\"ay\":" + String(drone_data->acc_y, 4) + ",";           // Accélération Y (G)
-        json += "\"az\":" + String(drone_data->acc_z, 4);                 // Accélération Z (G)
+        json += "\"az\":" + String(drone_data->acc_z, 4) + ",";           // Accélération Z (G)
+        json += "\"vb\":" + String(drone_data->voltage_bat, 1);           // Tension batterie (V)
         json += "}";
         request->send(200, "application/json", json);
     });

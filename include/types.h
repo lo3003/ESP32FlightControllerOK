@@ -74,6 +74,9 @@ typedef struct {
 
     // Durée IMU (task) exposée au main
     unsigned long current_time_imu;
+
+    // Tension batterie (V)
+    float voltage_bat;
 } DroneState;
 
 #endif
