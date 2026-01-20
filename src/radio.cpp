@@ -35,8 +35,11 @@ int process_channel(int input_sbus, bool reverse) {
 
     // VOS VALEURS REELLES : env. 310 à 1690
     // ON TRICHE : On dit que le min est 360 et le max 1640 pour être sûr d'atteindre les bouts.
-    int min_safe = 360; 
-    int max_safe = 1640;
+    //int min_safe = 360; 
+    //int max_safe = 1640;
+
+    int min_safe = 310; 
+    int max_safe = 1690;
     
     // Tout ce qui est en dessous de 360 deviendra 1000 pile.
     // Tout ce qui est au dessus de 1640 deviendra 2000 pile.

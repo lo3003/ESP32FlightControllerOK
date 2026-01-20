@@ -23,13 +23,25 @@ void setup() {
     Wire.setTimeOut(1);
 
     pinMode(PIN_LED, OUTPUT);
+    pinMode(PIN_BATTERY, INPUT);
+    analogReadResolution(12);
 
     motors_init();
+    int target_motor = 1; 
+
+    int m1_start = (target_motor == 1) ? 2000 : 1000;
+    int m2_start = (target_motor == 2) ? 2000 : 1000;
+    int m3_start = (target_motor == 3) ? 2000 : 1000;
+    int m4_start = (target_motor == 4) ? 2000 : 1000;
+    //motors_write_direct(2000, 2000, 2000, 2000);
+    motors_write_direct(m1_start, m2_start, m3_start, m4_start);
     radio_init();
     radio_start_task(); // <-- AJOUT: radio indépendante de la loop()
 
     // Pour l'initialisation, on envoie 2000 aux ESC (Procédure standard)
-    motors_write_direct(2000, 2000, 2000, 2000);
+    
+    //motors_write_direct(2000, 2000, 2000, 2000);
+
 
     // 3. DEMARRAGE TÂCHE TELEMETRIE (WIFI)
     start_telemetry_task(&drone); 
@@ -69,6 +81,14 @@ void setup() {
 
 void loop() {
     unsigned long t_start = micros();
+
+    // Lecture tension batterie (filtrée)
+    static float vbat_filter = 11.1f;
+    int raw = analogRead(PIN_BATTERY);
+    float v_pin = (raw / 4095.0f) * 3.3f;
+    float v_bat = v_pin * BAT_SCALE;
+    vbat_filter = (vbat_filter * 0.99f) + (v_bat * 0.01f);
+    drone.voltage_bat = vbat_filter;
 
     radio_update(&drone);
     unsigned long t_radio = micros();
