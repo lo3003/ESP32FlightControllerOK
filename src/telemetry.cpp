@@ -774,6 +774,7 @@ const char index_html[] PROGMEM = R"rawliteral(
         <div class="pid-section">
           <div class="pid-title">Stabilisation Auto</div>
           <div class="pid-row"><label>Niveau P</label><input type="number" step="1.0" id="pl"></div>
+          <div class="pid-row"><label>Heading P</label><input type="number" step="0.1" id="ph"></div>
         </div>
         <button class="btn btn-primary" id="pidBtn" onclick="sendPID()">Appliquer PID</button>
       </div>
@@ -1034,6 +1035,7 @@ function loadPID() {
     document.getElementById('iy').value = data.iy;
     document.getElementById('dy').value = data.dy;
     document.getElementById('pl').value = data.pl;
+    document.getElementById('ph').value = data.ph;
     document.getElementById('ffpr').value = data.ffpr;
     document.getElementById('ffy').value = data.ffy;
 
@@ -1047,7 +1049,7 @@ function sendPID() {
   btn.disabled = true;
   btn.textContent = 'Mise à jour...';
   
-  let params = ['ppr','ipr','dpr','py','iy','dy','pl','ffpr','ffy'].map(id => `${id}=${document.getElementById(id).value}`).join('&');
+  let params = ['ppr','ipr','dpr','py','iy','dy','pl','ph','ffpr','ffy'].map(id => `${id}=${document.getElementById(id).value}`).join('&');
   
   fetch(`/set_pid?${params}`)
     .then(res => {
@@ -1099,10 +1101,10 @@ setInterval(() => {
   fetch('/data').then(res => res.json()).then(data => {
     document.getElementById("ar").innerText = data.ar.toFixed(1);
     document.getElementById("ap").innerText = data.ap.toFixed(1);
-    document.getElementById("ay").innerText = data.ay.toFixed(1);  // AJOUT
+    document.getElementById("ay").innerText = data.alt_ayw.toFixed(1);  // Yaw fusionné AltIMU
     
-    // Update Yaw for cube
-    lastYaw = data.ay;
+    // Update Yaw for cube (utilise le yaw fusionné AltIMU)
+    lastYaw = data.alt_ayw;
 
     // Loop time
     let lt = data.lt;
@@ -1706,36 +1708,33 @@ void telemetryTask(void * parameter) {
     });
 
     server.on("/data", HTTP_GET, [](AsyncWebServerRequest *request){
-        String json = "{";
-        json += "\"ar\":" + String(drone_data->angle_roll) + ",";
-        json += "\"ap\":" + String(drone_data->angle_pitch) + ",";
-        json += "\"ay\":" + String(drone_data->angle_yaw) + ",";  // AJOUT
-        json += "\"r1\":" + String(drone_data->channel_1) + ",";
-        json += "\"r2\":" + String(drone_data->channel_2) + ",";
-        json += "\"r3\":" + String(drone_data->channel_3) + ",";
-        json += "\"r4\":" + String(drone_data->channel_4) + ",";
-        json += "\"lt\":" + String(drone_data->loop_time) + ",";
-        json += "\"mr\":" + String(drone_data->max_time_radio) + ",";
-        json += "\"mi\":" + String(drone_data->max_time_imu) + ",";
-        json += "\"ci\":" + String(drone_data->current_time_imu) + ",";
-        json += "\"mp\":" + String(drone_data->max_time_pid) + ",";
-        json += "\"gy\":" + String(drone_data->gyro_yaw_input) + ",";     // AJOUT: gyro yaw
-        json += "\"poy\":" + String(drone_data->pid_output_yaw) + ",";    // AJOUT: sortie PID yaw
-        json += "\"ax\":" + String(drone_data->acc_x, 4) + ",";           // Accélération X (G)
-        json += "\"ay\":" + String(drone_data->acc_y, 4) + ",";           // Accélération Y (G)
-        json += "\"az\":" + String(drone_data->acc_z, 4) + ",";           // Accélération Z (G)
-        json += "\"vb\":" + String(drone_data->voltage_bat, 1) + ",";      // Tension batterie (V)
-        json += "\"alt_ar\":" + String(drone_data->alt_angle_roll, 2) + ",";  // AltIMU angle roll
-        json += "\"alt_ap\":" + String(drone_data->alt_angle_pitch, 2) + ","; // AltIMU angle pitch
-        json += "\"alt_ax\":" + String(drone_data->alt_acc_x, 4) + ",";       // AltIMU accel X
-        json += "\"alt_ay\":" + String(drone_data->alt_acc_y, 4) + ",";       // AltIMU accel Y
-        json += "\"alt_az\":" + String(drone_data->alt_acc_z, 4) + ",";       // AltIMU accel Z
-        json += "\"alt_gr\":" + String(drone_data->alt_gyro_roll, 2) + ",";   // AltIMU gyro roll
-        json += "\"alt_gp\":" + String(drone_data->alt_gyro_pitch, 2) + ","; // AltIMU gyro pitch
-        json += "\"alt_gy\":" + String(drone_data->alt_gyro_yaw, 2) + ",";   // AltIMU gyro yaw
-        json += "\"alt_ayw\":" + String(drone_data->alt_angle_yaw, 1);       // AltIMU angle yaw (magnétomètre)
-        json += "}";
-        request->send(200, "application/json", json);
+        // Buffer statique pour éviter les allocations dynamiques String (cause de lag)
+        static char json_buffer[512];
+        
+        snprintf(json_buffer, sizeof(json_buffer),
+            "{\"ar\":%.2f,\"ap\":%.2f,\"ay\":%.2f,"
+            "\"r1\":%d,\"r2\":%d,\"r3\":%d,\"r4\":%d,"
+            "\"lt\":%lu,\"mr\":%lu,\"mi\":%lu,\"ci\":%lu,\"mp\":%lu,"
+            "\"gy\":%.2f,\"poy\":%.2f,"
+            "\"ax\":%.4f,\"ay\":%.4f,\"az\":%.4f,"
+            "\"vb\":%.1f,"
+            "\"alt_ar\":%.2f,\"alt_ap\":%.2f,"
+            "\"alt_ax\":%.4f,\"alt_ay\":%.4f,\"alt_az\":%.4f,"
+            "\"alt_gr\":%.2f,\"alt_gp\":%.2f,\"alt_gy\":%.2f,"
+            "\"alt_ayw\":%.1f}",
+            drone_data->angle_roll, drone_data->angle_pitch, drone_data->angle_yaw,
+            drone_data->channel_1, drone_data->channel_2, drone_data->channel_3, drone_data->channel_4,
+            drone_data->loop_time, drone_data->max_time_radio, drone_data->max_time_imu,
+            drone_data->current_time_imu, drone_data->max_time_pid,
+            drone_data->gyro_yaw_input, drone_data->pid_output_yaw,
+            drone_data->acc_x, drone_data->acc_y, drone_data->acc_z,
+            drone_data->voltage_bat,
+            drone_data->alt_angle_roll, drone_data->alt_angle_pitch,
+            drone_data->alt_acc_x, drone_data->alt_acc_y, drone_data->alt_acc_z,
+            drone_data->alt_gyro_roll, drone_data->alt_gyro_pitch, drone_data->alt_gyro_yaw,
+            drone_data->alt_angle_yaw
+        );
+        request->send(200, "application/json", json_buffer);
     });
     
     server.on("/reset_max", HTTP_GET, [](AsyncWebServerRequest *request){
@@ -1746,18 +1745,16 @@ void telemetryTask(void * parameter) {
     });
 
     server.on("/get_pid", HTTP_GET, [](AsyncWebServerRequest *request){
-        String json = "{";
-        json += "\"ppr\":" + String(drone_data->p_pitch_roll) + ",";
-        json += "\"ipr\":" + String(drone_data->i_pitch_roll) + ",";
-        json += "\"dpr\":" + String(drone_data->d_pitch_roll) + ",";
-        json += "\"py\":" + String(drone_data->p_yaw) + ",";
-        json += "\"iy\":" + String(drone_data->i_yaw) + ",";
-        json += "\"dy\":" + String(drone_data->d_yaw) + ",";
-        json += "\"ffpr\":" + String(drone_data->ff_pitch_roll) + ",";
-        json += "\"ffy\":" + String(drone_data->ff_yaw) + ",";
-        json += "\"pl\":" + String(drone_data->p_level);
-        json += "}";
-        request->send(200, "application/json", json);
+        static char json_buffer[320];
+        snprintf(json_buffer, sizeof(json_buffer),
+            "{\"ppr\":%.4f,\"ipr\":%.5f,\"dpr\":%.4f,"
+            "\"py\":%.4f,\"iy\":%.5f,\"dy\":%.4f,"
+            "\"ffpr\":%.4f,\"ffy\":%.4f,\"pl\":%.4f,\"ph\":%.4f}",
+            drone_data->p_pitch_roll, drone_data->i_pitch_roll, drone_data->d_pitch_roll,
+            drone_data->p_yaw, drone_data->i_yaw, drone_data->d_yaw,
+            drone_data->ff_pitch_roll, drone_data->ff_yaw, drone_data->p_level, drone_data->p_heading
+        );
+        request->send(200, "application/json", json_buffer);
     });
 
     server.on("/set_pid", HTTP_GET, [](AsyncWebServerRequest *request){
@@ -1768,6 +1765,7 @@ void telemetryTask(void * parameter) {
         if(request->hasParam("iy")) drone_data->i_yaw = request->getParam("iy")->value().toFloat();
         if(request->hasParam("dy")) drone_data->d_yaw = request->getParam("dy")->value().toFloat();
         if(request->hasParam("pl")) drone_data->p_level = request->getParam("pl")->value().toFloat();
+        if(request->hasParam("ph")) drone_data->p_heading = request->getParam("ph")->value().toFloat();
         if(request->hasParam("ffpr")) drone_data->ff_pitch_roll = request->getParam("ffpr")->value().toFloat();
         if(request->hasParam("ffy")) drone_data->ff_yaw = request->getParam("ffy")->value().toFloat();
 

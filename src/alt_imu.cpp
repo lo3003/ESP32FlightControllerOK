@@ -525,14 +525,14 @@ void alt_imu_start_task() {
     xTaskCreatePinnedToCore(
         alt_imu_task,
         "alt_imu",
-        3072,           // Réduire la stack (suffisant pour cette tâche)
+        3072,           // Stack réduite (suffisant pour cette tâche)
         nullptr,
-        2,              // Priority 2 (plus basse que l'IMU principal)
+        2,              // Priority 2 (plus basse que l'IMU principal qui est à 4)
         &alt_imu_task_handle,
-        1               // Core 1 (séparer de l'IMU principal sur Core 0)
+        0               // Core 0 (avec IMU principal, WiFi sur Core 1)
     );
 
-    Serial.println(F("ALT_IMU: Task started on Core 1 @ 125Hz"));
+    Serial.println(F("ALT_IMU: Task started on Core 0 @ 50Hz"));
 }
 
 void alt_imu_update(DroneState *drone) {

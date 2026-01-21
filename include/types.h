@@ -63,6 +63,9 @@ typedef struct {
     // Auto-level (outer loop)
     float p_level;
 
+    // Heading Hold (maintien de cap)
+    float p_heading;
+
     // Web test
     int web_test_vals[5];
 

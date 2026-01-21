@@ -24,7 +24,7 @@ static float last_valid_yaw = 0.0f;     // Dernier yaw valide mémorisé
 
 // Paramètres Heading Hold
 static const float YAW_DEADBAND = 20.0f;        // Deadband stick yaw (±20 autour de 1500)
-static const float P_HEADING = 3.0f;            // Gain P pour le maintien de cap
+// P_HEADING est maintenant dans DroneState (drone->p_heading) pour tuning Web
 static const float YAW_RATE_LIMIT = 200.0f;     // Limite max de la consigne rate générée (deg/s)
 static const float YAW_JUMP_THRESHOLD = 30.0f;  // Seuil de détection de saut aberrant (deg)
 
@@ -51,6 +51,9 @@ void pid_init_params(DroneState *drone) {
 
     // AUTO LEVEL
     drone->p_level = 5.0f;
+
+    // HEADING HOLD
+    drone->p_heading = 3.0f;
 
     Serial.println("PID Params Initialized (Flight-Ready Mode)");
 }
@@ -153,7 +156,7 @@ void pid_compute_setpoints(DroneState *drone) {
         while (error_angle < -180.0f) error_angle += 360.0f;
 
         // La consigne de vitesse = erreur * gain P (boucle externe)
-        float rate_setpoint = error_angle * P_HEADING;
+        float rate_setpoint = error_angle * drone->p_heading;
         
         // --- LIMITATION DE LA CONSIGNE ---
         // Éviter des consignes de rate trop agressives
