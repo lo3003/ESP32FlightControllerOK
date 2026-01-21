@@ -94,6 +94,9 @@ void imu_init() {
             last_led_toggle = millis();
         }
 
+        // Maintenir le signal ESC à 1000µs pendant la calibration pour éviter timeout ESC
+        motors_write_direct(1000, 1000, 1000, 1000);
+
         Wire.beginTransmission(MPU_ADDR);
         Wire.write(0x43);
         Wire.endTransmission();
@@ -145,11 +148,10 @@ static void imu_read_internal(DroneState *drone) {
 
     // ========== SECTION I2C PROTEGEE PAR MUTEX ==========
     // Prendre le mutex avant d'accéder au bus I2C
-    // IMPORTANT: On utilise un timeout de 0 (tryTake) pour ne JAMAIS bloquer l'IMU principal
-    // Si le mutex est occupé par l'AltIMU, on skip cette lecture et on garde les anciennes valeurs
+    // Timeout de 2ms max pour garantir la priorité de l'IMU principal sans blocage trop long
     if (i2c_mutex != nullptr) {
-        if (xSemaphoreTake(i2c_mutex, 0) != pdTRUE) {
-            // Mutex occupé: skip cette lecture (l'AltIMU utilise le bus)
+        if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(2)) != pdTRUE) {
+            // Mutex occupé après 2ms: skip cette lecture (l'AltIMU utilise le bus)
             // Les anciennes valeurs seront conservées, pas de blocage
             return;
         }

@@ -11,6 +11,10 @@
 #include "esc_calibrate.h"
 #include "telemetry.h"
 
+// --- FLAG POUR DESACTIVER LA FUSION YAW ---
+// Mettre à 1 pour activer, 0 pour désactiver
+#define YAW_FUSION_ENABLED 0
+
 DroneState drone;
 unsigned long loop_timer;
 unsigned long arming_timer = 0;
@@ -147,6 +151,7 @@ void loop() {
         alt_imu_update(&drone);  // <-- snapshot alt_imu non-bloquant
 
         // Fusion Yaw (gyro + magnétomètre) - réduit à 50Hz pour économiser du CPU
+#if YAW_FUSION_ENABLED
         static uint8_t fusion_counter = 0;
         if (drone.current_mode == MODE_ARMED || drone.current_mode == MODE_FLYING) {
             if (++fusion_counter >= 5) {
@@ -157,6 +162,7 @@ void loop() {
         } else {
             fusion_counter = 0;
         }
+#endif
 
         unsigned long t_imu = micros();
         (void)t_imu_start;   // durée "loop" IMU n'a plus de sens; drone.current_time_imu vient de la task
@@ -177,7 +183,9 @@ void loop() {
                         drone.angle_pitch = 0;
                         drone.angle_roll = 0;
                         imu_request_reset();      // Reset IMU angles
+#if YAW_FUSION_ENABLED
                         yaw_fusion_reset(&drone); // Reset fusion yaw avec magnétomètre
+#endif
                         loop_timer = micros();
                      }
                 } else { arming_timer = 0; }

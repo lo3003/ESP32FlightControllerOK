@@ -4,6 +4,7 @@
 #include "imu.h"      // Pour accéder au mutex I2C partagé
 #include "config.h"
 #include "kalman.h"
+#include "motors.h"   // Pour maintenir le signal ESC pendant la calibration
 
 // --- FreeRTOS ---
 #include "freertos/FreeRTOS.h"
@@ -181,6 +182,9 @@ void alt_imu_init() {
             last_led_toggle = millis();
         }
 
+        // Maintenir le signal ESC à 1000µs pendant la calibration pour éviter timeout ESC
+        motors_write_direct(1000, 1000, 1000, 1000);
+
         // Lecture avec auto-increment (bit 7 = 1)
         Wire.beginTransmission(L3GD20_ADDR);
         Wire.write(L3GD20_OUT_X_L | 0x80);
@@ -258,6 +262,9 @@ void alt_imu_calibrate_mag() {
             digitalWrite(PIN_LED, led_state);
             last_led_toggle = millis();
         }
+
+        // Maintenir le signal ESC à 1000µs pendant la calibration pour éviter timeout ESC
+        motors_write_direct(1000, 1000, 1000, 1000);
 
         int16_t mx, my, mz;
         if (read_mag_raw(&mx, &my, &mz)) {
@@ -498,8 +505,8 @@ static void alt_imu_task(void *parameter) {
         if (ok) alt_imu_snap.last_ok_ms = millis();
         portEXIT_CRITICAL(&alt_imu_mux);
 
-        // 50 Hz suffit largement pour le magnétomètre/fusion (réduit la contention I2C)
-        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(20)); // 50 Hz au lieu de 125 Hz
+        // 25 Hz suffit largement pour le magnétomètre/fusion (réduit la contention I2C)
+        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(40)); // 25 Hz au lieu de 50 Hz
     }
 }
 
@@ -527,12 +534,12 @@ void alt_imu_start_task() {
         "alt_imu",
         3072,           // Stack réduite (suffisant pour cette tâche)
         nullptr,
-        2,              // Priority 2 (plus basse que l'IMU principal qui est à 4)
+        1,              // Priority 1 (plus basse que l'IMU principal qui est à 4)
         &alt_imu_task_handle,
         0               // Core 0 (avec IMU principal, WiFi sur Core 1)
     );
 
-    Serial.println(F("ALT_IMU: Task started on Core 0 @ 50Hz"));
+    Serial.println(F("ALT_IMU: Task started on Core 0 @ 25Hz"));
 }
 
 void alt_imu_update(DroneState *drone) {

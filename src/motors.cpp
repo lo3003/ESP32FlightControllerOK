@@ -20,7 +20,7 @@ void motors_init() {
     ledcAttachPin(PIN_MOTOR_3, PWM_CH3);
     ledcAttachPin(PIN_MOTOR_4, PWM_CH4);
 
-    //motors_stop();
+    motors_stop();
 }
 
 void motors_stop() {
