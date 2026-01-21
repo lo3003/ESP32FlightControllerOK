@@ -17,6 +17,17 @@ static float ff_sp_roll = 0.0f;
 static float ff_sp_pitch = 0.0f;
 static float ff_sp_yaw = 0.0f;
 
+// --- HEADING HOLD (Maintien de Cap) ---
+static float yaw_target_angle = 0.0f;   // Cap cible mémorisé
+static bool yaw_heading_lock = false;   // Flag: lock de cap actif
+static float last_valid_yaw = 0.0f;     // Dernier yaw valide mémorisé
+
+// Paramètres Heading Hold
+static const float YAW_DEADBAND = 20.0f;        // Deadband stick yaw (±20 autour de 1500)
+static const float P_HEADING = 3.0f;            // Gain P pour le maintien de cap
+static const float YAW_RATE_LIMIT = 200.0f;     // Limite max de la consigne rate générée (deg/s)
+static const float YAW_JUMP_THRESHOLD = 30.0f;  // Seuil de détection de saut aberrant (deg)
+
 // Timer de sécurité pour ne pas resetter le I sur une micro-coupure radio
 static unsigned long pid_inflight_timer = 0;
 
@@ -55,6 +66,11 @@ void pid_reset_integral() {
     pid_inflight_timer = 0;
 
     ff_sp_roll = ff_sp_pitch = ff_sp_yaw = 0.0f;
+
+    // Reset Heading Hold
+    yaw_target_angle = 0.0f;
+    yaw_heading_lock = false;
+    last_valid_yaw = 0.0f;
 }
 
 // --- CALCUL DES CONSIGNES (Setpoints) ---
@@ -83,21 +99,94 @@ void pid_compute_setpoints(DroneState *drone) {
     float input_pitch = stick_pitch - (drone->angle_pitch * drone->p_level);
     drone->pid_setpoint_pitch = input_pitch / 3.0f;
 
-    // --- YAW (stick, rate only) ---
-    float stick_yaw = 0.0f;
-
-    // Autorise yaw seulement si on est au-dessus d'un minimum de gaz
+    // --- YAW avec HEADING HOLD (Maintien de Cap) ---
+    // Lecture brute du stick yaw (avant deadband)
+    float raw_stick_yaw = 0.0f;
     if (drone->channel_3 > 1050) {
-        if (drone->channel_4 > 1520)      stick_yaw = (float)(drone->channel_4 - 1520);
-        else if (drone->channel_4 < 1480) stick_yaw = (float)(drone->channel_4 - 1480);
+        // Calcul de l'écart par rapport au centre (1500)
+        raw_stick_yaw = (float)(drone->channel_4 - 1500);
     }
 
 #if RC_INVERT_YAW
-    stick_yaw = -stick_yaw;
+    raw_stick_yaw = -raw_stick_yaw;
 #endif
 
-    ff_sp_yaw = stick_yaw;            // yaw déjà en "rate"
-    drone->pid_setpoint_yaw = stick_yaw;
+    // Vérifier si le stick est dans la deadband (pilote ne touche pas au yaw)
+    bool stick_in_deadband = (fabsf(raw_stick_yaw) < YAW_DEADBAND);
+
+    if (stick_in_deadband) {
+        // --- CAS 1 : Manche au centre (Deadband) -> Heading Hold ---
+        
+        // Récupérer le yaw actuel
+        float current_yaw = drone->angle_yaw;
+        
+        // --- DETECTION DE SAUT ABERRANT ---
+        // Si le yaw saute de plus de YAW_JUMP_THRESHOLD depuis la dernière mesure valide,
+        // on ignore la nouvelle valeur et on garde la dernière valide
+        float yaw_delta = current_yaw - last_valid_yaw;
+        // Normaliser le delta entre -180 et +180
+        while (yaw_delta > 180.0f)  yaw_delta -= 360.0f;
+        while (yaw_delta < -180.0f) yaw_delta += 360.0f;
+        
+        if (fabsf(yaw_delta) > YAW_JUMP_THRESHOLD && yaw_heading_lock) {
+            // Saut aberrant détecté pendant le lock : ignorer, garder la dernière valeur
+            current_yaw = last_valid_yaw;
+        } else {
+            // Valeur valide : mettre à jour la mémoire
+            last_valid_yaw = current_yaw;
+        }
+        
+        // Si le lock n'était pas actif, on capture le cap actuel comme cible
+        if (!yaw_heading_lock) {
+            yaw_target_angle = current_yaw;
+            last_valid_yaw = current_yaw;
+            yaw_heading_lock = true;
+        }
+
+        // Calcul de l'erreur d'angle
+        float error_angle = yaw_target_angle - current_yaw;
+
+        // --- Gestion du "Shortest Path" ---
+        // Normalise l'erreur entre -180° et +180° pour éviter les rotations inutiles
+        // Exemple : de 350° à 10° -> erreur = +20° (pas -340°)
+        while (error_angle > 180.0f)  error_angle -= 360.0f;
+        while (error_angle < -180.0f) error_angle += 360.0f;
+
+        // La consigne de vitesse = erreur * gain P (boucle externe)
+        float rate_setpoint = error_angle * P_HEADING;
+        
+        // --- LIMITATION DE LA CONSIGNE ---
+        // Éviter des consignes de rate trop agressives
+        if (rate_setpoint > YAW_RATE_LIMIT) rate_setpoint = YAW_RATE_LIMIT;
+        else if (rate_setpoint < -YAW_RATE_LIMIT) rate_setpoint = -YAW_RATE_LIMIT;
+        
+        // Cette consigne alimente ensuite la boucle PID Rate existante
+        drone->pid_setpoint_yaw = rate_setpoint;
+
+        // FeedForward = 0 car pas de commande pilote
+        ff_sp_yaw = 0.0f;
+
+    } else {
+        // --- CAS 2 : Manche actif -> Commande directe de vitesse (Rate) ---
+        
+        // Désactive le lock de cap
+        yaw_heading_lock = false;
+        
+        // Mémoriser le yaw actuel pour la prochaine activation du lock
+        last_valid_yaw = drone->angle_yaw;
+
+        // Conversion stick -> consigne rate (comportement original)
+        float stick_yaw = 0.0f;
+        if (drone->channel_4 > 1520)      stick_yaw = (float)(drone->channel_4 - 1520);
+        else if (drone->channel_4 < 1480) stick_yaw = (float)(drone->channel_4 - 1480);
+
+#if RC_INVERT_YAW
+        stick_yaw = -stick_yaw;
+#endif
+
+        ff_sp_yaw = stick_yaw;              // FeedForward = commande pilote
+        drone->pid_setpoint_yaw = stick_yaw; // Consigne rate directe
+    }
 }
 
 // --- BOUCLE PID PRINCIPALE ---

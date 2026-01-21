@@ -1,12 +1,14 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include "alt_imu.h"
+#include "imu.h"      // Pour accéder au mutex I2C partagé
 #include "config.h"
 #include "kalman.h"
 
 // --- FreeRTOS ---
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 
 // ==================== REGISTRES L3GD20 ====================
 #define L3GD20_CTRL_REG1    0x20
@@ -326,15 +328,25 @@ static void alt_imu_read_internal(DroneState *drone) {
     }
     last_us = now_us;
 
+    // ========== SECTION I2C PROTEGEE PAR MUTEX ==========
+    // Prendre le mutex avant d'accéder au bus I2C
+    if (i2c_mutex != nullptr) {
+        if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(8)) != pdTRUE) {
+            // Timeout: le mutex n'a pas pu être pris, skip cette lecture
+            return;
+        }
+    }
+
     // ========== LECTURE GYROSCOPE L3GD20 ==========
     Wire.beginTransmission(L3GD20_ADDR);
     Wire.write(L3GD20_OUT_X_L | 0x80);  // Auto-increment
     uint8_t err_g = Wire.endTransmission();
 
     if (err_g != 0) {
+        if (i2c_mutex != nullptr) xSemaphoreGive(i2c_mutex);
         fail_count++;
         if (fail_count >= 10) {
-            Serial.println(F("ALT_IMU: L3GD20 not responding, disabling"));
+            // Log supprimé pour éviter les lags
             alt_imu_available = false;
         }
         return;
@@ -420,7 +432,13 @@ static void alt_imu_read_internal(DroneState *drone) {
 
     // ========== LECTURE MAGNETOMETRE LSM303DLHC ==========
     int16_t mx_raw = 0, my_raw = 0, mz_raw = 0;
-    if (read_mag_raw(&mx_raw, &my_raw, &mz_raw)) {
+    bool mag_ok = read_mag_raw(&mx_raw, &my_raw, &mz_raw);
+    
+    // Libérer le mutex après toutes les lectures I2C
+    if (i2c_mutex != nullptr) xSemaphoreGive(i2c_mutex);
+    // ========== FIN SECTION I2C PROTEGEE ==========
+
+    if (mag_ok) {
         // Appliquer calibration
         float mx = (mx_raw - mag_offset_x) * mag_scale_x;
         float my = (my_raw - mag_offset_y) * mag_scale_y;
@@ -480,7 +498,8 @@ static void alt_imu_task(void *parameter) {
         if (ok) alt_imu_snap.last_ok_ms = millis();
         portEXIT_CRITICAL(&alt_imu_mux);
 
-        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(4)); // 250 Hz
+        // 50 Hz suffit largement pour le magnétomètre/fusion (réduit la contention I2C)
+        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(20)); // 50 Hz au lieu de 125 Hz
     }
 }
 
@@ -496,19 +515,24 @@ void alt_imu_start_task() {
         return;
     }
 
+    // Attendre que le mutex I2C soit créé par imu_start_task()
+    if (i2c_mutex == nullptr) {
+        Serial.println(F("ALT_IMU: WARNING - I2C mutex not yet created!"));
+    }
+
     Serial.println(F("ALT_IMU: Starting FreeRTOS task..."));
 
     xTaskCreatePinnedToCore(
         alt_imu_task,
         "alt_imu",
-        4096,
+        3072,           // Réduire la stack (suffisant pour cette tâche)
         nullptr,
-        3,              // Priority 3 (lower than primary IMU)
+        2,              // Priority 2 (plus basse que l'IMU principal)
         &alt_imu_task_handle,
-        0               // Core 0
+        1               // Core 1 (séparer de l'IMU principal sur Core 0)
     );
 
-    Serial.println(F("ALT_IMU: Task started successfully"));
+    Serial.println(F("ALT_IMU: Task started on Core 1 @ 125Hz"));
 }
 
 void alt_imu_update(DroneState *drone) {

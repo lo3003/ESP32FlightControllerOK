@@ -1800,5 +1800,7 @@ void telemetryTask(void * parameter) {
 
 void start_telemetry_task(DroneState* drone_ptr) {
     drone_data = drone_ptr;
-    xTaskCreatePinnedToCore(telemetryTask, "WifiTask", 4096, NULL, 1, NULL, 0);
+    // Déplacer sur Core 1 pour ne pas interférer avec l'IMU principal sur Core 0
+    // Stack augmentée pour le WiFi qui est gourmand en mémoire
+    xTaskCreatePinnedToCore(telemetryTask, "WifiTask", 8192, NULL, 1, NULL, 1);
 }

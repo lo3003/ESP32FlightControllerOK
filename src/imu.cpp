@@ -8,6 +8,11 @@
 // --- FreeRTOS ---
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
+
+// ==================== MUTEX I2C GLOBAL ====================
+// Ce mutex est partagé entre imu.cpp et alt_imu.cpp pour éviter les conflits I2C
+SemaphoreHandle_t i2c_mutex = nullptr;
 
 // --- Offsets calibration ---
 static double gyro_off_x = 0;
@@ -138,15 +143,26 @@ static void imu_read_internal(DroneState *drone) {
     }
     last_us = now_us;
 
+    // ========== SECTION I2C PROTEGEE PAR MUTEX ==========
+    // Prendre le mutex avant d'accéder au bus I2C
+    // IMPORTANT: On utilise un timeout de 0 (tryTake) pour ne JAMAIS bloquer l'IMU principal
+    // Si le mutex est occupé par l'AltIMU, on skip cette lecture et on garde les anciennes valeurs
+    if (i2c_mutex != nullptr) {
+        if (xSemaphoreTake(i2c_mutex, 0) != pdTRUE) {
+            // Mutex occupé: skip cette lecture (l'AltIMU utilise le bus)
+            // Les anciennes valeurs seront conservées, pas de blocage
+            return;
+        }
+    }
+
     Wire.beginTransmission(MPU_ADDR);
     Wire.write(0x3B);
     uint8_t err = Wire.endTransmission();
 
     if (err != 0) {
+        if (i2c_mutex != nullptr) xSemaphoreGive(i2c_mutex);
         fail_count++;
-        if (fail_count % 250 == 1) {  // Log toutes les secondes environ
-            Serial.printf("IMU I2C Error: endTransmission=%d, fails=%lu\n", err, fail_count);
-        }
+        // Log supprimé pour éviter les lags (Serial.printf est bloquant)
         drone->max_time_imu = 888888;
         return;
     }
@@ -154,10 +170,9 @@ static void imu_read_internal(DroneState *drone) {
     uint8_t count = Wire.requestFrom(MPU_ADDR, 14);
 
     if (count < 14) {
+        if (i2c_mutex != nullptr) xSemaphoreGive(i2c_mutex);
         fail_count++;
-        if (fail_count % 250 == 1) {
-            Serial.printf("IMU I2C Error: only %d bytes received, fails=%lu\n", count, fail_count);
-        }
+        // Log supprimé pour éviter les lags
         drone->max_time_imu = 888888;
         return;
     }
@@ -171,6 +186,10 @@ static void imu_read_internal(DroneState *drone) {
     gyro_raw[0] = (int16_t)(Wire.read() << 8 | Wire.read());
     gyro_raw[1] = (int16_t)(Wire.read() << 8 | Wire.read());
     gyro_raw[2] = (int16_t)(Wire.read() << 8 | Wire.read());
+
+    // Libérer le mutex après la lecture I2C
+    if (i2c_mutex != nullptr) xSemaphoreGive(i2c_mutex);
+    // ========== FIN SECTION I2C PROTEGEE ==========
 
     double gyro_x_cal = gyro_raw[0] - gyro_off_x;
     double gyro_y_cal = gyro_raw[1] - gyro_off_y;
@@ -349,6 +368,16 @@ void imu_start_task() {
     if (imu_task_handle != nullptr) {
         Serial.println(F("IMU: Task already running!"));
         return;
+    }
+
+    // Créer le mutex I2C s'il n'existe pas encore
+    if (i2c_mutex == nullptr) {
+        i2c_mutex = xSemaphoreCreateMutex();
+        if (i2c_mutex == nullptr) {
+            Serial.println(F("IMU: ERREUR - Impossible de créer le mutex I2C!"));
+            return;
+        }
+        Serial.println(F("IMU: Mutex I2C créé"));
     }
 
     Serial.println(F("IMU: Starting FreeRTOS task..."));

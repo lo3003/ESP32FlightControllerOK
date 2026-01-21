@@ -112,13 +112,17 @@ void setup() {
 void loop() {
     unsigned long t_start = micros();
 
-    // Lecture tension batterie (filtrée)
+    // Lecture tension batterie (filtrée) - seulement 1 fois sur 25 (10Hz)
+    static uint8_t bat_counter = 0;
     static float vbat_filter = 11.1f;
-    int raw = analogRead(PIN_BATTERY);
-    float v_pin = (raw / 4095.0f) * 3.3f;
-    float v_bat = v_pin * BAT_SCALE;
-    vbat_filter = (vbat_filter * 0.99f) + (v_bat * 0.01f);
-    drone.voltage_bat = vbat_filter;
+    if (++bat_counter >= 25) {
+        bat_counter = 0;
+        int raw = analogRead(PIN_BATTERY);
+        float v_pin = (raw / 4095.0f) * 3.3f;
+        float v_bat = v_pin * BAT_SCALE;
+        vbat_filter = (vbat_filter * 0.95f) + (v_bat * 0.05f);
+        drone.voltage_bat = vbat_filter;
+    }
 
     radio_update(&drone);
     unsigned long t_radio = micros();
@@ -142,10 +146,16 @@ void loop() {
         imu_update(&drone);      // <-- snapshot non-bloquant
         alt_imu_update(&drone);  // <-- snapshot alt_imu non-bloquant
 
-        // Fusion Yaw (gyro + magnétomètre) uniquement en vol
+        // Fusion Yaw (gyro + magnétomètre) - réduit à 50Hz pour économiser du CPU
+        static uint8_t fusion_counter = 0;
         if (drone.current_mode == MODE_ARMED || drone.current_mode == MODE_FLYING) {
-            const float dt_s = LOOP_TIME_US * 1e-6f;  // Delta time en secondes
-            yaw_fusion_update(&drone, dt_s);
+            if (++fusion_counter >= 5) {
+                fusion_counter = 0;
+                const float dt_s = LOOP_TIME_US * 5.0f * 1e-6f;  // 5 cycles = 20ms
+                yaw_fusion_update(&drone, dt_s);
+            }
+        } else {
+            fusion_counter = 0;
         }
 
         unsigned long t_imu = micros();
@@ -266,10 +276,7 @@ void loop() {
     // Gestion Loop Time constant
     unsigned long time_used = micros() - loop_timer;
     
-    // Si on est en avance, on attend
-    if (time_used < LOOP_TIME_US) {
-        if (LOOP_TIME_US - time_used > 2000) delay(1);
-        while(micros() - loop_timer < LOOP_TIME_US);
-    }
+    // Si on est en avance, on attend (busy-wait pour précision)
+    while(micros() - loop_timer < LOOP_TIME_US);
     loop_timer = micros();
 }
