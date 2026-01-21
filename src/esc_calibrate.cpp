@@ -18,16 +18,8 @@ void esc_calibrate_loop(DroneState *drone) {
     if(throt < 1000) throt = 1000;
     if(throt > 2000) throt = 2000;
     
-    //motors_write_direct(throt, throt, throt, throt);
+    motors_write_direct(throt, throt, throt, throt);
 
-    int target_motor = 1; 
-
-    int m1_out = (target_motor == 1) ? throt : 1000;
-    int m2_out = (target_motor == 2) ? throt : 1000;
-    int m3_out = (target_motor == 3) ? throt : 1000;
-    int m4_out = (target_motor == 4) ? throt : 1000;
-
-    motors_write_direct(m1_out, m2_out, m3_out, m4_out);
     
     // Clignotement LED lent pour dire "Je suis en calib"
     if((millis() / 500) % 2) digitalWrite(PIN_LED, HIGH); 

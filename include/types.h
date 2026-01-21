@@ -77,6 +77,17 @@ typedef struct {
 
     // Tension batterie (V)
     float voltage_bat;
+
+    // --- Second IMU (AltIMU-10 v2) pour comparaison ---
+    float alt_acc_x;         // G (axe X)
+    float alt_acc_y;         // G (axe Y)
+    float alt_acc_z;         // G (axe Z)
+    float alt_gyro_roll;     // deg/s
+    float alt_gyro_pitch;    // deg/s
+    float alt_gyro_yaw;      // deg/s
+    float alt_angle_roll;    // deg (Kalman)
+    float alt_angle_pitch;   // deg (Kalman)
+    float alt_angle_yaw;     // deg (magnétomètre heading)
 } DroneState;
 
 #endif

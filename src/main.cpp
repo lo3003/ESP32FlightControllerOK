@@ -4,6 +4,7 @@
 #include "types.h"
 #include "radio.h"
 #include "imu.h"
+#include "alt_imu.h"
 #include "pid.h"
 #include "motors.h"
 #include "esc_calibrate.h"
@@ -27,20 +28,12 @@ void setup() {
     analogReadResolution(12);
 
     motors_init();
-    int target_motor = 1; 
-
-    int m1_start = (target_motor == 1) ? 2000 : 1000;
-    int m2_start = (target_motor == 2) ? 2000 : 1000;
-    int m3_start = (target_motor == 3) ? 2000 : 1000;
-    int m4_start = (target_motor == 4) ? 2000 : 1000;
-    //motors_write_direct(2000, 2000, 2000, 2000);
-    motors_write_direct(m1_start, m2_start, m3_start, m4_start);
     radio_init();
     radio_start_task(); // <-- AJOUT: radio indépendante de la loop()
 
     // Pour l'initialisation, on envoie 2000 aux ESC (Procédure standard)
     
-    //motors_write_direct(2000, 2000, 2000, 2000);
+    motors_write_direct(2000, 2000, 2000, 2000);
 
 
     // 3. DEMARRAGE TÂCHE TELEMETRIE (WIFI)
@@ -66,6 +59,10 @@ void setup() {
 
         imu_init();
         imu_start_task();      // <-- AJOUT: IMU sur tâche FreeRTOS
+
+        alt_imu_init();
+        alt_imu_calibrate_mag();  // Calibration magnétomètre (10s de rotation)
+        alt_imu_start_task();  // <-- Alt IMU sur tâche FreeRTOS séparée
 
         pid_init();
         pid_init_params(&drone);
@@ -109,9 +106,10 @@ void loop() {
         // imu_read(&drone);
 
         unsigned long t_imu_start = micros();
-        imu_update(&drone);  // <-- snapshot non-bloquant
+        imu_update(&drone);      // <-- snapshot non-bloquant
+        alt_imu_update(&drone);  // <-- snapshot alt_imu non-bloquant
         unsigned long t_imu = micros();
-        (void)t_imu_start;   // durée “loop” IMU n’a plus de sens; drone.current_time_imu vient de la task
+        (void)t_imu_start;   // durée "loop" IMU n'a plus de sens; drone.current_time_imu vient de la task
 
         switch(drone.current_mode) {
             // ---------------- MODE SAFE ----------------

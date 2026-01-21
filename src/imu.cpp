@@ -109,6 +109,7 @@ void imu_init() {
 // ==================== IMU READ INTERNAL ====================
 static void imu_read_internal(DroneState *drone) {
     static unsigned long last_us = 0;
+    static unsigned long fail_count = 0;  // DEBUG: compteur d'échecs
     const unsigned long now_us = micros();
     float dt_s = 0.004f;
     if (last_us != 0) {
@@ -120,14 +121,29 @@ static void imu_read_internal(DroneState *drone) {
 
     Wire.beginTransmission(MPU_ADDR);
     Wire.write(0x3B);
-    Wire.endTransmission();
+    uint8_t err = Wire.endTransmission();
+
+    if (err != 0) {
+        fail_count++;
+        if (fail_count % 250 == 1) {  // Log toutes les secondes environ
+            Serial.printf("IMU I2C Error: endTransmission=%d, fails=%lu\n", err, fail_count);
+        }
+        drone->max_time_imu = 888888;
+        return;
+    }
 
     uint8_t count = Wire.requestFrom(MPU_ADDR, 14);
 
     if (count < 14) {
+        fail_count++;
+        if (fail_count % 250 == 1) {
+            Serial.printf("IMU I2C Error: only %d bytes received, fails=%lu\n", count, fail_count);
+        }
         drone->max_time_imu = 888888;
         return;
     }
+    
+    fail_count = 0;  // Reset si succès
 
     acc_raw[0] = (int16_t)(Wire.read() << 8 | Wire.read());
     acc_raw[1] = (int16_t)(Wire.read() << 8 | Wire.read());
@@ -311,7 +327,12 @@ static void imu_task(void *parameter) {
 
 // ==================== API PUBLIQUE ====================
 void imu_start_task() {
-    if (imu_task_handle != nullptr) return;
+    if (imu_task_handle != nullptr) {
+        Serial.println(F("IMU: Task already running!"));
+        return;
+    }
+
+    Serial.println(F("IMU: Starting FreeRTOS task..."));
 
     xTaskCreatePinnedToCore(
         imu_task,
@@ -322,6 +343,8 @@ void imu_start_task() {
         &imu_task_handle,
         0
     );
+    
+    Serial.println(F("IMU: Task started successfully"));
 }
 
 void imu_update(DroneState *drone) {

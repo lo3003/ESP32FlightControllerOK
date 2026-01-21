@@ -796,6 +796,50 @@ const char index_html[] PROGMEM = R"rawliteral(
         </div>
         <button class="btn btn-danger" id="stopBtn" onclick="stopAll()">Arrêt d'Urgence</button>
       </div>
+
+      <!-- Carte Comparaison IMU -->
+      <div class="card">
+        <div class="card-header">
+          <div class="icon">🔬</div>
+          <h3>Comparaison IMU</h3>
+        </div>
+        <div class="pid-title" style="margin-bottom: 8px;">MPU6050 (Principal)</div>
+        <div class="stat-row">
+          <span class="stat-label">Roll</span>
+          <span class="stat-value" id="mpu_roll" style="color: var(--primary);">0.0°</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Pitch</span>
+          <span class="stat-value" id="mpu_pitch" style="color: var(--primary);">0.0°</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Gyro Yaw</span>
+          <span class="stat-value" id="mpu_gyaw" style="color: var(--primary);">0.0°/s</span>
+        </div>
+        <div class="pid-title" style="margin-top: 16px; margin-bottom: 8px; border-top: 1px solid var(--card-border); padding-top: 12px;">AltIMU-10 v2 (Secondaire)</div>
+        <div class="stat-row">
+          <span class="stat-label">Roll</span>
+          <span class="stat-value" id="alt_roll" style="color: var(--success);">0.0°</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Pitch</span>
+          <span class="stat-value" id="alt_pitch" style="color: var(--success);">0.0°</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Yaw (Mag)</span>
+          <span class="stat-value" id="alt_yaw" style="color: var(--success);">0.0°</span>
+        </div>
+        <div class="pid-title" style="margin-top: 16px; margin-bottom: 8px; border-top: 1px solid var(--warning); padding-top: 12px;">Écart (MPU - Alt)</div>
+        <div class="stat-row">
+          <span class="stat-label">ΔRoll</span>
+          <span class="stat-value warning" id="diff_roll">0.0°</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">ΔPitch</span>
+          <span class="stat-value warning" id="diff_pitch">0.0°</span>
+        </div>
+      </div>
+
       <!-- Carte Preuve de Dérive Inertielle - PLEINE LARGEUR -->
       <div class="card" style="grid-column: 1 / -1;">
         <div class="card-header">
@@ -1090,6 +1134,26 @@ setInterval(() => {
     document.getElementById("rx_p").value = data.r2; document.getElementById("val_p").innerText = data.r2;
     document.getElementById("rx_r").value = data.r1; document.getElementById("val_r").innerText = data.r1;
     
+    // Comparaison IMU - MPU6050 vs AltIMU-10
+    document.getElementById("mpu_roll").innerText = data.ar.toFixed(1) + "°";
+    document.getElementById("mpu_pitch").innerText = data.ap.toFixed(1) + "°";
+    document.getElementById("mpu_gyaw").innerText = data.gy.toFixed(1) + "°/s";
+    
+    document.getElementById("alt_roll").innerText = (data.alt_ar !== undefined ? data.alt_ar.toFixed(1) : "N/A") + "°";
+    document.getElementById("alt_pitch").innerText = (data.alt_ap !== undefined ? data.alt_ap.toFixed(1) : "N/A") + "°";
+    document.getElementById("alt_yaw").innerText = (data.alt_ayw !== undefined ? data.alt_ayw.toFixed(1) : "N/A") + "°";
+    
+    // Écart entre les deux IMU
+    if (data.alt_ar !== undefined && data.alt_ap !== undefined) {
+      let diffRoll = data.ar - data.alt_ar;
+      let diffPitch = data.ap - data.alt_ap;
+      document.getElementById("diff_roll").innerText = diffRoll.toFixed(1) + "°";
+      document.getElementById("diff_pitch").innerText = diffPitch.toFixed(1) + "°";
+      // Colorer en rouge si écart > 5°
+      document.getElementById("diff_roll").style.color = Math.abs(diffRoll) > 5 ? "var(--danger)" : "var(--warning)";
+      document.getElementById("diff_pitch").style.color = Math.abs(diffPitch) > 5 ? "var(--danger)" : "var(--warning)";
+    }
+
     // Drift PoC - Update with accelerometer data
     if (typeof updateDriftSimulation === 'function') {
       updateDriftSimulation(data.ax, data.ay, data.az, data.ar, data.ap);
@@ -1660,7 +1724,16 @@ void telemetryTask(void * parameter) {
         json += "\"ax\":" + String(drone_data->acc_x, 4) + ",";           // Accélération X (G)
         json += "\"ay\":" + String(drone_data->acc_y, 4) + ",";           // Accélération Y (G)
         json += "\"az\":" + String(drone_data->acc_z, 4) + ",";           // Accélération Z (G)
-        json += "\"vb\":" + String(drone_data->voltage_bat, 1);           // Tension batterie (V)
+        json += "\"vb\":" + String(drone_data->voltage_bat, 1) + ",";      // Tension batterie (V)
+        json += "\"alt_ar\":" + String(drone_data->alt_angle_roll, 2) + ",";  // AltIMU angle roll
+        json += "\"alt_ap\":" + String(drone_data->alt_angle_pitch, 2) + ","; // AltIMU angle pitch
+        json += "\"alt_ax\":" + String(drone_data->alt_acc_x, 4) + ",";       // AltIMU accel X
+        json += "\"alt_ay\":" + String(drone_data->alt_acc_y, 4) + ",";       // AltIMU accel Y
+        json += "\"alt_az\":" + String(drone_data->alt_acc_z, 4) + ",";       // AltIMU accel Z
+        json += "\"alt_gr\":" + String(drone_data->alt_gyro_roll, 2) + ",";   // AltIMU gyro roll
+        json += "\"alt_gp\":" + String(drone_data->alt_gyro_pitch, 2) + ","; // AltIMU gyro pitch
+        json += "\"alt_gy\":" + String(drone_data->alt_gyro_yaw, 2) + ",";   // AltIMU gyro yaw
+        json += "\"alt_ayw\":" + String(drone_data->alt_angle_yaw, 1);       // AltIMU angle yaw (magnétomètre)
         json += "}";
         request->send(200, "application/json", json);
     });
