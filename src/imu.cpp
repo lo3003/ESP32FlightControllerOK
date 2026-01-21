@@ -69,12 +69,26 @@ void imu_init() {
     Wire.beginTransmission(MPU_ADDR); Wire.write(0x1C); Wire.write(0x10); Wire.endTransmission();
     Wire.beginTransmission(MPU_ADDR); Wire.write(0x1A); Wire.write(0x03); Wire.endTransmission();
 
-    Serial.println(F("IMU: Calib Gyro (1000 samples)..."));
-    digitalWrite(PIN_LED, HIGH);
+    Serial.println(F(""));
+    Serial.println(F("IMU: Calibration Gyro MPU6050 - NE PAS BOUGER LE DRONE!"));
+    Serial.println(F("IMU: Calibration en cours (5 secondes)..."));
 
     long gyro_sum_x = 0, gyro_sum_y = 0, gyro_sum_z = 0;
+    int valid_samples = 0;
 
-    for (int i = 0; i < 1000; i++) {
+    // Calibration pendant 5 secondes avec LED clignotante rapide (50ms)
+    unsigned long calib_start = millis();
+    unsigned long last_led_toggle = 0;
+    bool led_state = false;
+
+    while (millis() - calib_start < 5000) {
+        // Clignotement LED rapide (50ms on, 50ms off)
+        if (millis() - last_led_toggle >= 50) {
+            led_state = !led_state;
+            digitalWrite(PIN_LED, led_state);
+            last_led_toggle = millis();
+        }
+
         Wire.beginTransmission(MPU_ADDR);
         Wire.write(0x43);
         Wire.endTransmission();
@@ -85,13 +99,18 @@ void imu_init() {
         gyro_sum_x += (int16_t)(Wire.read() << 8 | Wire.read());
         gyro_sum_y += (int16_t)(Wire.read() << 8 | Wire.read());
         gyro_sum_z += (int16_t)(Wire.read() << 8 | Wire.read());
+        valid_samples++;
 
         delayMicroseconds(2000);
     }
 
-    gyro_off_x = gyro_sum_x / 1000.0;
-    gyro_off_y = gyro_sum_y / 1000.0;
-    gyro_off_z = gyro_sum_z / 1000.0;
+    if (valid_samples > 0) {
+        gyro_off_x = (double)gyro_sum_x / valid_samples;
+        gyro_off_y = (double)gyro_sum_y / valid_samples;
+        gyro_off_z = (double)gyro_sum_z / valid_samples;
+    }
+
+    Serial.printf("IMU: %d echantillons collectes\n", valid_samples);
 
     // Configuration Kalman pour MPU6050
     kalman_roll.setQangle(0.001f);

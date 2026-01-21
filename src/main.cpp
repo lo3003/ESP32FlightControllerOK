@@ -5,6 +5,7 @@
 #include "radio.h"
 #include "imu.h"
 #include "alt_imu.h"
+#include "yaw_fusion.h"
 #include "pid.h"
 #include "motors.h"
 #include "esc_calibrate.h"
@@ -57,12 +58,44 @@ void setup() {
         motors_stop();
         drone.current_mode = MODE_SAFE;
 
-        imu_init();
-        imu_start_task();      // <-- AJOUT: IMU sur tâche FreeRTOS
+        // ========== PHASE 1 : CALIBRATION GYRO/ACCEL ==========
+        Serial.println(F(""));
+        Serial.println(F("############################################"));
+        Serial.println(F("# PHASE 1 - CALIBRATION GYRO/ACCEL        #"));
+        Serial.println(F("# >>> NE PAS BOUGER LE DRONE <<<          #"));
+        Serial.println(F("############################################"));
 
-        alt_imu_init();
-        alt_imu_calibrate_mag();  // Calibration magnétomètre (10s de rotation)
-        alt_imu_start_task();  // <-- Alt IMU sur tâche FreeRTOS séparée
+        imu_init();            // Calibration MPU6050 (5s, LED rapide)
+        alt_imu_init();        // Calibration AltIMU L3GD20 (5s, LED rapide)
+
+        // Pause visuelle - LED éteinte 1 seconde
+        digitalWrite(PIN_LED, LOW);
+        delay(1000);
+
+        // ========== PHASE 2 : CALIBRATION MAGNETOMETRE ==========
+        Serial.println(F(""));
+        Serial.println(F("############################################"));
+        Serial.println(F("# PHASE 2 - CALIBRATION MAGNETOMETRE      #"));
+        Serial.println(F("# >>> TOURNER LE DRONE DANS TOUS LES SENS #"));
+        Serial.println(F("############################################"));
+
+        alt_imu_calibrate_mag();  // Calibration magnétomètre (20s, LED lente)
+
+        // Fin de calibration - LED fixe 1 seconde
+        Serial.println(F(""));
+        Serial.println(F("############################################"));
+        Serial.println(F("# CALIBRATION TERMINEE                    #"));
+        Serial.println(F("############################################"));
+        digitalWrite(PIN_LED, HIGH);
+        delay(1000);
+        digitalWrite(PIN_LED, LOW);
+
+        // Démarrage des tâches FreeRTOS
+        imu_start_task();      // IMU sur tâche FreeRTOS
+        alt_imu_start_task();  // Alt IMU sur tâche FreeRTOS séparée
+
+        // Initialisation fusion yaw
+        yaw_fusion_init();
 
         pid_init();
         pid_init_params(&drone);
@@ -108,6 +141,13 @@ void loop() {
         unsigned long t_imu_start = micros();
         imu_update(&drone);      // <-- snapshot non-bloquant
         alt_imu_update(&drone);  // <-- snapshot alt_imu non-bloquant
+
+        // Fusion Yaw (gyro + magnétomètre) uniquement en vol
+        if (drone.current_mode == MODE_ARMED || drone.current_mode == MODE_FLYING) {
+            const float dt_s = LOOP_TIME_US * 1e-6f;  // Delta time en secondes
+            yaw_fusion_update(&drone, dt_s);
+        }
+
         unsigned long t_imu = micros();
         (void)t_imu_start;   // durée "loop" IMU n'a plus de sens; drone.current_time_imu vient de la task
 
@@ -124,9 +164,10 @@ void loop() {
                         arming_timer = 0;
                         error_code = 0; // Reset erreurs
                         pid_reset_integral();
-                        drone.angle_pitch = 0; 
+                        drone.angle_pitch = 0;
                         drone.angle_roll = 0;
-                        imu_request_reset();      // <-- AJOUT (très important)
+                        imu_request_reset();      // Reset IMU angles
+                        yaw_fusion_reset(&drone); // Reset fusion yaw avec magnétomètre
                         loop_timer = micros();
                      }
                 } else { arming_timer = 0; }

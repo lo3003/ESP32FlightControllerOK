@@ -44,6 +44,12 @@ static Kalman alt_kalman_pitch;
 static bool alt_kalman_initialized = false;
 static bool alt_imu_available = false;  // Flag pour indiquer si l'AltIMU est connecté
 
+// ==================== FILTRE PT1 GYRO ====================
+#define ALT_GYRO_PT1_COEFF 0.5f
+static float alt_gyro_roll_filt = 0.0f;
+static float alt_gyro_pitch_filt = 0.0f;
+static float alt_gyro_yaw_filt = 0.0f;
+
 // ==================== SNAPSHOT ALT_IMU ====================
 typedef struct {
     float alt_acc_x;
@@ -152,13 +158,27 @@ void alt_imu_init() {
     Wire.write(0x00);  // MD[1:0]=00 (continuous)
     Wire.endTransmission();
 
-    // Calibration gyroscope (500 échantillons)
-    Serial.println(F("ALT_IMU: Calib Gyro (500 samples)..."));
+    // Calibration gyroscope (5 secondes)
+    Serial.println(F(""));
+    Serial.println(F("ALT_IMU: Calibration Gyro L3GD20 - NE PAS BOUGER LE DRONE!"));
+    Serial.println(F("ALT_IMU: Calibration en cours (5 secondes)..."));
 
     long gyro_sum_x = 0, gyro_sum_y = 0, gyro_sum_z = 0;
     int valid_samples = 0;
 
-    for (int i = 0; i < 500; i++) {
+    // Calibration pendant 5 secondes avec LED clignotante rapide (50ms)
+    unsigned long calib_start = millis();
+    unsigned long last_led_toggle = 0;
+    bool led_state = false;
+
+    while (millis() - calib_start < 5000) {
+        // Clignotement LED rapide (50ms on, 50ms off)
+        if (millis() - last_led_toggle >= 50) {
+            led_state = !led_state;
+            digitalWrite(PIN_LED, led_state);
+            last_led_toggle = millis();
+        }
+
         // Lecture avec auto-increment (bit 7 = 1)
         Wire.beginTransmission(L3GD20_ADDR);
         Wire.write(L3GD20_OUT_X_L | 0x80);
@@ -182,11 +202,15 @@ void alt_imu_init() {
         delayMicroseconds(2000);
     }
 
+    digitalWrite(PIN_LED, LOW);
+
     if (valid_samples > 0) {
         alt_gyro_off_x = (float)gyro_sum_x / valid_samples;
         alt_gyro_off_y = (float)gyro_sum_y / valid_samples;
         alt_gyro_off_z = (float)gyro_sum_z / valid_samples;
     }
+
+    Serial.printf("ALT_IMU: %d echantillons collectes\n", valid_samples);
 
     // Configuration Kalman pour AltIMU
     alt_kalman_roll.setQangle(0.001f);
@@ -210,8 +234,9 @@ void alt_imu_calibrate_mag() {
 
     Serial.println(F(""));
     Serial.println(F("========================================"));
-    Serial.println(F("MAG CALIBRATION: Rotate drone slowly in"));
-    Serial.println(F("all directions for 10 seconds..."));
+    Serial.println(F("MAG CALIBRATION: TOURNER LE DRONE DANS"));
+    Serial.println(F("TOUTES LES DIRECTIONS pendant 20 secondes"));
+    Serial.println(F("(Pitch, Roll, Yaw 360 degres)"));
     Serial.println(F("========================================"));
 
     float min_x = 32767.0f, max_x = -32768.0f;
@@ -219,10 +244,19 @@ void alt_imu_calibrate_mag() {
     float min_z = 32767.0f, max_z = -32768.0f;
 
     unsigned long start_time = millis();
+    unsigned long last_led_toggle = 0;
+    bool led_state = false;
     int sample_count = 0;
 
-    // LED clignotante pendant calibration
-    while (millis() - start_time < 10000) {
+    // LED clignotante lente (500ms) pendant calibration 20 secondes
+    while (millis() - start_time < 20000) {
+        // Clignotement LED lent (500ms on, 500ms off)
+        if (millis() - last_led_toggle >= 500) {
+            led_state = !led_state;
+            digitalWrite(PIN_LED, led_state);
+            last_led_toggle = millis();
+        }
+
         int16_t mx, my, mz;
         if (read_mag_raw(&mx, &my, &mz)) {
             // Track min/max
@@ -234,9 +268,6 @@ void alt_imu_calibrate_mag() {
             if (mz > max_z) max_z = mz;
             sample_count++;
         }
-
-        // Clignotement LED
-        digitalWrite(PIN_LED, (millis() / 100) % 2);
 
         delay(20);  // ~50Hz sampling
     }
@@ -330,9 +361,14 @@ static void alt_imu_read_internal(DroneState *drone) {
     float gyro_pitch_dps = -gyro_y_cal * GYRO_SCALE;  // Inverser selon orientation
     float gyro_yaw_dps   = gyro_z_cal * GYRO_SCALE;
 
-    drone->alt_gyro_roll  = gyro_roll_dps;
-    drone->alt_gyro_pitch = gyro_pitch_dps;
-    drone->alt_gyro_yaw   = gyro_yaw_dps;
+    // Filtre PT1 passe-bas (identique au MPU6050)
+    alt_gyro_roll_filt  += ALT_GYRO_PT1_COEFF * (gyro_roll_dps  - alt_gyro_roll_filt);
+    alt_gyro_pitch_filt += ALT_GYRO_PT1_COEFF * (gyro_pitch_dps - alt_gyro_pitch_filt);
+    alt_gyro_yaw_filt   += ALT_GYRO_PT1_COEFF * (gyro_yaw_dps   - alt_gyro_yaw_filt);
+
+    drone->alt_gyro_roll  = alt_gyro_roll_filt;
+    drone->alt_gyro_pitch = alt_gyro_pitch_filt;
+    drone->alt_gyro_yaw   = alt_gyro_yaw_filt;
 
     // ========== LECTURE ACCELEROMETRE LSM303DLHC ==========
     Wire.beginTransmission(LSM303_ACC_ADDR);
