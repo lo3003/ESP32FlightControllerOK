@@ -13,7 +13,7 @@
 
 // --- FLAG POUR DESACTIVER LA FUSION YAW ---
 // Mettre à 1 pour activer, 0 pour désactiver
-#define YAW_FUSION_ENABLED 0
+#define YAW_FUSION_ENABLED 1
 
 DroneState drone;
 unsigned long loop_timer;
@@ -32,19 +32,26 @@ void setup() {
     pinMode(PIN_BATTERY, INPUT);
     analogReadResolution(12);
 
-    motors_init();
-    radio_init();
-    radio_start_task(); // <-- AJOUT: radio indépendante de la loop()
-
-    // Pour l'initialisation, on envoie 2000 aux ESC (Procédure standard)
+    // --- CORRECTION ESC : ON N'INITIALISE PAS LES MOTEURS TOUT DE SUITE ---
+    // Si on lance motors_init() ici, on envoie 1000us pendant les 30s de calibration.
+    // Cela provoque la mise en sécurité de certains ESC.
     
-    motors_write_direct(2000, 2000, 2000, 2000);
+    // À la place, on force les pins à 0V (LOW). Les ESC vont biper "Signal Lost", mais ne se verrouilleront pas.
+    // NOTE : Vérifie que ces pins correspondent bien à tes defines dans config.h (souvent 12, 13, 14, 15 sur ESP32)
+    pinMode(12, OUTPUT); digitalWrite(12, LOW);
+    pinMode(13, OUTPUT); digitalWrite(13, LOW);
+    pinMode(14, OUTPUT); digitalWrite(14, LOW);
+    pinMode(15, OUTPUT); digitalWrite(15, LOW);
 
+    radio_init();
+    radio_start_task(); // Radio indépendante de la loop()
+
+    // On ne lance PAS motors_write_direct(2000...) ici. On attend de connaître le mode.
 
     // 3. DEMARRAGE TÂCHE TELEMETRIE (WIFI)
     start_telemetry_task(&drone); 
 
-    // On attend un signal valide. Pendant ce temps, les ESC sont en attente "Max Throttle"
+    // On attend un signal valide. Pendant ce temps, les ESC bipent (Signal Lost) ou attendent.
     unsigned long wait_start = millis();
     while(drone.channel_3 < 900) {
         radio_update(&drone);
@@ -56,10 +63,19 @@ void setup() {
 
     // 4. DECISION SELON LE STICK
     if(drone.channel_3 > 1900) {
+        // ================= MODE CALIBRATION ESC =================
+        // L'utilisateur veut calibrer : ON INITIALISE LES MOTEURS MAINTENANT
+        motors_init(); 
+        // On envoie direct le MAX throttle pour entrer en mode prog ESC
+        motors_write_direct(2000, 2000, 2000, 2000);
+
         drone.current_mode = MODE_CALIBRATION;
         esc_calibrate_init();
+
     } else {
-        motors_stop();
+        // ================= MODE VOL NORMAL (SAFE) =================
+        // On reste silencieux vers les moteurs (LOW) pour ne pas déclencher le timeout ESC
+        
         drone.current_mode = MODE_SAFE;
 
         // ========== PHASE 1 : CALIBRATION GYRO/ACCEL ==========
@@ -69,10 +85,10 @@ void setup() {
         Serial.println(F("# >>> NE PAS BOUGER LE DRONE <<<          #"));
         Serial.println(F("############################################"));
 
-        imu_init();            // Calibration MPU6050 (5s, LED rapide)
-        alt_imu_init();        // Calibration AltIMU L3GD20 (5s, LED rapide)
+        imu_init();            // Calibration MPU6050 (5s)
+        alt_imu_init();        // Calibration AltIMU (5s)
 
-        // Pause visuelle - LED éteinte 1 seconde
+        // Pause visuelle
         digitalWrite(PIN_LED, LOW);
         delay(1000);
 
@@ -83,7 +99,7 @@ void setup() {
         Serial.println(F("# >>> TOURNER LE DRONE DANS TOUS LES SENS #"));
         Serial.println(F("############################################"));
 
-        alt_imu_calibrate_mag();  // Calibration magnétomètre (20s, LED lente)
+        alt_imu_calibrate_mag();  // C'est ici que ça bloquait 20s
 
         // Fin de calibration - LED fixe 1 seconde
         Serial.println(F(""));
@@ -94,9 +110,15 @@ void setup() {
         delay(1000);
         digitalWrite(PIN_LED, LOW);
 
+        // --- C'EST MAINTENANT QU'ON REVEILLE LES ESC ---
+        // La calibration longue est finie, on peut envoyer le signal PWM 1000us
+        Serial.println(F("INITIALISATION MOTEURS..."));
+        motors_init(); 
+        // Les ESC vont maintenant faire leur musique de démarrage "123" + Bips LiPo
+        
         // Démarrage des tâches FreeRTOS
-        imu_start_task();      // IMU sur tâche FreeRTOS
-        alt_imu_start_task();  // Alt IMU sur tâche FreeRTOS séparée
+        imu_start_task();      
+        alt_imu_start_task();  
 
         // Initialisation fusion yaw
         yaw_fusion_init();
