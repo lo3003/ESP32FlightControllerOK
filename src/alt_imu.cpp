@@ -182,8 +182,10 @@ void alt_imu_init() {
             last_led_toggle = millis();
         }
 
-        // Maintenir le signal ESC à 1000µs pendant la calibration pour éviter timeout ESC
-        motors_write_direct(1000, 1000, 1000, 1000);
+        // Signal ESC "heartbeat" variable (1000-1019µs) pour éviter timeout ESC
+        // Le signal oscille au lieu d'être statique, ce qui empêche la protection timeout
+        int pwm_heartbeat = 1000 + (millis() % 20);
+        motors_write_direct(pwm_heartbeat, pwm_heartbeat, pwm_heartbeat, pwm_heartbeat);
 
         // Lecture avec auto-increment (bit 7 = 1)
         Wire.beginTransmission(L3GD20_ADDR);
@@ -263,8 +265,10 @@ void alt_imu_calibrate_mag() {
             last_led_toggle = millis();
         }
 
-        // Maintenir le signal ESC à 1000µs pendant la calibration pour éviter timeout ESC
-        motors_write_direct(1000, 1000, 1000, 1000);
+        // Signal ESC "heartbeat" variable (1000-1019µs) pour éviter timeout ESC
+        // Le signal oscille au lieu d'être statique, ce qui empêche la protection timeout
+        int pwm_heartbeat = 1000 + (millis() % 20);
+        motors_write_direct(pwm_heartbeat, pwm_heartbeat, pwm_heartbeat, pwm_heartbeat);
 
         int16_t mx, my, mz;
         if (read_mag_raw(&mx, &my, &mz)) {

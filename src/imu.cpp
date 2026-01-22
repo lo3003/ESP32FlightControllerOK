@@ -94,8 +94,10 @@ void imu_init() {
             last_led_toggle = millis();
         }
 
-        // Maintenir le signal ESC à 1000µs pendant la calibration pour éviter timeout ESC
-        motors_write_direct(1000, 1000, 1000, 1000);
+        // Signal ESC "heartbeat" variable (1000-1019µs) pour éviter timeout ESC
+        // Le signal oscille au lieu d'être statique, ce qui empêche la protection timeout
+        int pwm_heartbeat = 1000 + (millis() % 20);
+        motors_write_direct(pwm_heartbeat, pwm_heartbeat, pwm_heartbeat, pwm_heartbeat);
 
         Wire.beginTransmission(MPU_ADDR);
         Wire.write(0x43);
