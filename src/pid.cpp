@@ -2,9 +2,14 @@
 #include "config.h"
 #include <Arduino.h>
 
+// --- TENSION DE REFERENCE POUR LA COMPENSATION (A ajuster selon ta batterie) ---
+// 12.0f pour 3S (11.1V nominal, 12.6V max)
+// 16.0f pour 4S (14.8V nominal, 16.8V max)
+#define PID_REF_VOLTAGE 12.0f 
+
 // --- FLAG POUR DESACTIVER LE HEADING HOLD ---
 // Mettre à 1 pour activer, 0 pour désactiver (mode simple)
-#define HEADING_HOLD_ENABLED 0
+#define HEADING_HOLD_ENABLED 1
 
 // --- MEMOIRES PID ---
 // Note : pid_last_..._input stocke la dernière MESURE (Gyro) pour le D
@@ -28,7 +33,6 @@ static float last_valid_yaw = 0.0f;     // Dernier yaw valide mémorisé
 
 // Paramètres Heading Hold
 static const float YAW_DEADBAND = 20.0f;        // Deadband stick yaw (±20 autour de 1500)
-// P_HEADING est maintenant dans DroneState (drone->p_heading) pour tuning Web
 static const float YAW_RATE_LIMIT = 200.0f;     // Limite max de la consigne rate générée (deg/s)
 static const float YAW_JUMP_THRESHOLD = 30.0f;  // Seuil de détection de saut aberrant (deg)
 
@@ -48,8 +52,7 @@ void pid_init_params(DroneState *drone) {
     drone->i_yaw = 0.005f;
     drone->d_yaw = 0.0f;
 
-    // FEEDFORWARD (à tuner via Web)
-    // Ordre de grandeur: 0.05 à 0.25
+    // FEEDFORWARD
     drone->ff_pitch_roll = 0.16f;
     drone->ff_yaw        = 0.10f;
 
@@ -59,7 +62,7 @@ void pid_init_params(DroneState *drone) {
     // HEADING HOLD
     drone->p_heading = 3.0f;
 
-    Serial.println("PID Params Initialized (Flight-Ready Mode)");
+    Serial.println("PID Params Initialized (Flight-Ready Mode + VBat Comp)");
 }
 
 void pid_init() {
@@ -81,8 +84,6 @@ void pid_reset_integral() {
 }
 
 // --- CALCUL DES CONSIGNES (Setpoints) ---
-// roll/pitch : "self-level" -> consigne rate = stick - angle*p_level
-// yaw        : rate pure (pas d'angle yaw)
 void pid_compute_setpoints(DroneState *drone) {
     // --- ROLL (stick) ---
     float stick_roll = 0.0f;
@@ -108,11 +109,8 @@ void pid_compute_setpoints(DroneState *drone) {
 
     // --- YAW ---
 #if HEADING_HOLD_ENABLED
-    // --- YAW avec HEADING HOLD (Maintien de Cap) ---
-    // Lecture brute du stick yaw (avant deadband)
     float raw_stick_yaw = 0.0f;
     if (drone->channel_3 > 1050) {
-        // Calcul de l'écart par rapport au centre (1500)
         raw_stick_yaw = (float)(drone->channel_4 - 1500);
     }
 
@@ -120,71 +118,45 @@ void pid_compute_setpoints(DroneState *drone) {
     raw_stick_yaw = -raw_stick_yaw;
 #endif
 
-    // Vérifier si le stick est dans la deadband (pilote ne touche pas au yaw)
     bool stick_in_deadband = (fabsf(raw_stick_yaw) < YAW_DEADBAND);
 
     if (stick_in_deadband) {
-        // --- CAS 1 : Manche au centre (Deadband) -> Heading Hold ---
-
-        // Récupérer le yaw actuel
+        // --- Heading Hold ---
         float current_yaw = drone->angle_yaw;
 
-        // --- DETECTION DE SAUT ABERRANT ---
-        // Si le yaw saute de plus de YAW_JUMP_THRESHOLD depuis la dernière mesure valide,
-        // on ignore la nouvelle valeur et on garde la dernière valide
         float yaw_delta = current_yaw - last_valid_yaw;
-        // Normaliser le delta entre -180 et +180
         while (yaw_delta > 180.0f)  yaw_delta -= 360.0f;
         while (yaw_delta < -180.0f) yaw_delta += 360.0f;
 
         if (fabsf(yaw_delta) > YAW_JUMP_THRESHOLD && yaw_heading_lock) {
-            // Saut aberrant détecté pendant le lock : ignorer, garder la dernière valeur
             current_yaw = last_valid_yaw;
         } else {
-            // Valeur valide : mettre à jour la mémoire
             last_valid_yaw = current_yaw;
         }
 
-        // Si le lock n'était pas actif, on capture le cap actuel comme cible
         if (!yaw_heading_lock) {
             yaw_target_angle = current_yaw;
             last_valid_yaw = current_yaw;
             yaw_heading_lock = true;
         }
 
-        // Calcul de l'erreur d'angle
         float error_angle = yaw_target_angle - current_yaw;
-
-        // --- Gestion du "Shortest Path" ---
-        // Normalise l'erreur entre -180° et +180° pour éviter les rotations inutiles
-        // Exemple : de 350° à 10° -> erreur = +20° (pas -340°)
         while (error_angle > 180.0f)  error_angle -= 360.0f;
         while (error_angle < -180.0f) error_angle += 360.0f;
 
-        // La consigne de vitesse = erreur * gain P (boucle externe)
         float rate_setpoint = error_angle * drone->p_heading;
 
-        // --- LIMITATION DE LA CONSIGNE ---
-        // Éviter des consignes de rate trop agressives
         if (rate_setpoint > YAW_RATE_LIMIT) rate_setpoint = YAW_RATE_LIMIT;
         else if (rate_setpoint < -YAW_RATE_LIMIT) rate_setpoint = -YAW_RATE_LIMIT;
 
-        // Cette consigne alimente ensuite la boucle PID Rate existante
         drone->pid_setpoint_yaw = rate_setpoint;
-
-        // FeedForward = 0 car pas de commande pilote
         ff_sp_yaw = 0.0f;
 
     } else {
-        // --- CAS 2 : Manche actif -> Commande directe de vitesse (Rate) ---
-
-        // Désactive le lock de cap
+        // --- Pilot Control ---
         yaw_heading_lock = false;
-
-        // Mémoriser le yaw actuel pour la prochaine activation du lock
         last_valid_yaw = drone->angle_yaw;
 
-        // Conversion stick -> consigne rate (comportement original)
         float stick_yaw = 0.0f;
         if (drone->channel_4 > 1520)      stick_yaw = (float)(drone->channel_4 - 1520);
         else if (drone->channel_4 < 1480) stick_yaw = (float)(drone->channel_4 - 1480);
@@ -193,12 +165,12 @@ void pid_compute_setpoints(DroneState *drone) {
         stick_yaw = -stick_yaw;
 #endif
 
-        ff_sp_yaw = stick_yaw;              // FeedForward = commande pilote
-        drone->pid_setpoint_yaw = stick_yaw; // Consigne rate directe
+        ff_sp_yaw = stick_yaw;
+        drone->pid_setpoint_yaw = stick_yaw;
     }
 
 #else
-    // --- YAW SIMPLE (sans Heading Hold) ---
+    // --- YAW SIMPLE ---
     float stick_yaw = 0.0f;
     if (drone->channel_3 > 1050) {
         if (drone->channel_4 > 1520)      stick_yaw = (float)(drone->channel_4 - 1520);
@@ -214,7 +186,7 @@ void pid_compute_setpoints(DroneState *drone) {
 #endif
 }
 
-// --- BOUCLE PID PRINCIPALE ---
+// --- BOUCLE PID PRINCIPALE (Avec V-Bat Compensation) ---
 void pid_compute(DroneState *drone) {
     float d_err_raw, d_err_filtered;
 
@@ -224,23 +196,41 @@ void pid_compute(DroneState *drone) {
     }
     bool in_flight = (millis() - pid_inflight_timer < 500);
 
-    // 2) TPA (atténuation P/D/FF à haut gaz)
+    // 2) TPA (Throtte PID Attenuation)
+    // Réduit les gains quand on met plein gaz pour éviter les oscillations
     float tpa_factor = 1.0f;
     if (drone->channel_3 > 1500) {
-        //tpa_factor = map(drone->channel_3, 1500, 2000, 100, 80) / 100.0f;
+        // Décommenter la ligne suivante pour activer le TPA
+        // tpa_factor = map(drone->channel_3, 1500, 2000, 100, 80) / 100.0f;
         tpa_factor = 1.0f;
     }
+
+    // 3) COMPENSATION TENSION BATTERIE (V-Bat)
+    // Augmente les gains quand la batterie faiblit (les moteurs ont moins de couple)
+    float vbat_compensation = 1.0f;
+    if (drone->voltage_bat > 6.0f) { // Sécurité : on ne compense que si lecture > 6V
+        vbat_compensation = PID_REF_VOLTAGE / drone->voltage_bat;
+        
+        // Bornes de sécurité (±30%)
+        if (vbat_compensation > 1.3f) vbat_compensation = 1.3f;
+        if (vbat_compensation < 0.7f) vbat_compensation = 0.7f;
+    }
+
+    // SCALER GLOBAL : Combine TPA et V-Bat
+    float pid_scaler = tpa_factor * vbat_compensation;
+
 
     // ---------------- ROLL ----------------
     float error = drone->gyro_roll_input - drone->pid_setpoint_roll;
 
-    float p_term_roll = (drone->p_pitch_roll * tpa_factor) * error;
+    float p_term_roll = (drone->p_pitch_roll * pid_scaler) * error;
 
     d_err_raw = pid_last_roll_input - drone->gyro_roll_input;
     d_err_filtered = pid_roll_d_filter_old + D_FILTER_COEFF * (d_err_raw - pid_roll_d_filter_old);
     pid_roll_d_filter_old = d_err_filtered;
     pid_last_roll_input = drone->gyro_roll_input;
-    float d_term_roll = (drone->d_pitch_roll * tpa_factor) * d_err_filtered;
+    
+    float d_term_roll = (drone->d_pitch_roll * pid_scaler) * d_err_filtered;
 
     if (in_flight) {
         float output_before_i = p_term_roll + pid_i_mem_roll + d_term_roll;
@@ -253,7 +243,7 @@ void pid_compute(DroneState *drone) {
         pid_i_mem_roll = 0;
     }
 
-    float ff_term_roll = (drone->ff_pitch_roll * tpa_factor) * ff_sp_roll;
+    float ff_term_roll = (drone->ff_pitch_roll * pid_scaler) * ff_sp_roll;
 
     drone->pid_output_roll = p_term_roll + pid_i_mem_roll + d_term_roll + ff_term_roll;
     if (drone->pid_output_roll > PID_MAX_ROLL) drone->pid_output_roll = PID_MAX_ROLL;
@@ -262,13 +252,14 @@ void pid_compute(DroneState *drone) {
     // ---------------- PITCH ----------------
     error = drone->gyro_pitch_input - drone->pid_setpoint_pitch;
 
-    float p_term_pitch = (drone->p_pitch_roll * tpa_factor) * error;
+    float p_term_pitch = (drone->p_pitch_roll * pid_scaler) * error;
 
     d_err_raw = pid_last_pitch_input - drone->gyro_pitch_input;
     d_err_filtered = pid_pitch_d_filter_old + D_FILTER_COEFF * (d_err_raw - pid_pitch_d_filter_old);
     pid_pitch_d_filter_old = d_err_filtered;
     pid_last_pitch_input = drone->gyro_pitch_input;
-    float d_term_pitch = (drone->d_pitch_roll * tpa_factor) * d_err_filtered;
+    
+    float d_term_pitch = (drone->d_pitch_roll * pid_scaler) * d_err_filtered;
 
     if (in_flight) {
         float output_before_i = p_term_pitch + pid_i_mem_pitch + d_term_pitch;
@@ -281,23 +272,23 @@ void pid_compute(DroneState *drone) {
         pid_i_mem_pitch = 0;
     }
 
-    float ff_term_pitch = (drone->ff_pitch_roll * tpa_factor) * ff_sp_pitch;
+    float ff_term_pitch = (drone->ff_pitch_roll * pid_scaler) * ff_sp_pitch;
 
     drone->pid_output_pitch = p_term_pitch + pid_i_mem_pitch + d_term_pitch + ff_term_pitch;
     if (drone->pid_output_pitch > PID_MAX_PITCH) drone->pid_output_pitch = PID_MAX_PITCH;
     else if (drone->pid_output_pitch < -PID_MAX_PITCH) drone->pid_output_pitch = -PID_MAX_PITCH;
 
     // ---------------- YAW ----------------
-    // yaw = rate PID pur (aucun angle yaw)
     error = drone->gyro_yaw_input - drone->pid_setpoint_yaw;
 
-    float p_term_yaw = (drone->p_yaw * tpa_factor) * error;
+    float p_term_yaw = (drone->p_yaw * pid_scaler) * error;
 
     d_err_raw = pid_last_yaw_input - drone->gyro_yaw_input;
     d_err_filtered = pid_yaw_d_filter_old + D_FILTER_COEFF * (d_err_raw - pid_yaw_d_filter_old);
     pid_yaw_d_filter_old = d_err_filtered;
     pid_last_yaw_input = drone->gyro_yaw_input;
-    float d_term_yaw = (drone->d_yaw * tpa_factor) * d_err_filtered;
+    
+    float d_term_yaw = (drone->d_yaw * pid_scaler) * d_err_filtered;
 
     if (in_flight) {
         float output_before_i = p_term_yaw + pid_i_mem_yaw + d_term_yaw;
@@ -310,7 +301,7 @@ void pid_compute(DroneState *drone) {
         pid_i_mem_yaw = 0;
     }
 
-    float ff_term_yaw = (drone->ff_yaw * tpa_factor) * ff_sp_yaw;
+    float ff_term_yaw = (drone->ff_yaw * pid_scaler) * ff_sp_yaw;
 
     drone->pid_output_yaw = p_term_yaw + pid_i_mem_yaw + d_term_yaw + ff_term_yaw;
     if (drone->pid_output_yaw > PID_MAX_YAW) drone->pid_output_yaw = PID_MAX_YAW;

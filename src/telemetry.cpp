@@ -480,141 +480,25 @@ const char index_html[] PROGMEM = R"rawliteral(
     .cube-face.top    { background: rgba(239, 68, 68, 0.3); transform: rotateX(90deg) translateZ(75px); }
     .cube-face.bottom { background: rgba(239, 68, 68, 0.2); transform: rotateX(-90deg) translateZ(75px); }
 
-    /* ========== ESPACE 3D COMPLET ========== */
-    .world-3d-container {
-      background: linear-gradient(180deg, #0c1929 0%, #1a2744 50%, #243b5a 100%);
+    /* ========== PLAN 2D DERIVE ========== */
+    .drift-2d-container {
+      background: var(--input-bg);
       border-radius: 12px;
-      padding: 20px;
+      padding: 12px;
       border: 1px solid var(--card-border);
-      position: relative;
-      overflow: hidden;
     }
-    .world-3d {
+    .drift-2d-container canvas {
       width: 100%;
-      height: 350px;
-      position: relative;
-      perspective: 800px;
-      transform-style: preserve-3d;
+      height: auto;
+      display: block;
     }
-    .world-3d-info {
+    .drift-2d-info {
       display: flex;
       justify-content: space-between;
       margin-top: 12px;
       font-family: Consolas, monospace;
       font-size: 0.8rem;
       color: var(--text-muted);
-    }
-    /* Grille au sol */
-    .ground-grid {
-      position: absolute;
-      width: 600px;
-      height: 600px;
-      left: 50%;
-      top: 60%;
-      transform: translateX(-50%) rotateX(70deg);
-      background-image: 
-        linear-gradient(rgba(59, 130, 246, 0.3) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(59, 130, 246, 0.3) 1px, transparent 1px);
-      background-size: 40px 40px;
-      border: 2px solid rgba(59, 130, 246, 0.5);
-      transform-style: preserve-3d;
-      transition: transform 0.3s ease;
-    }
-    /* Origine */
-    .origin-marker {
-      position: absolute;
-      left: 50%;
-      top: 60%;
-      transform: translateX(-50%) translateY(-50%);
-      z-index: 10;
-    }
-    .origin-pole {
-      width: 4px;
-      height: 80px;
-      background: linear-gradient(to top, #22c55e, #4ade80);
-      margin: 0 auto;
-      border-radius: 2px;
-      box-shadow: 0 0 10px #22c55e;
-    }
-    .origin-label {
-      background: #22c55e;
-      color: #000;
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-size: 0.65rem;
-      font-weight: bold;
-      text-align: center;
-      margin-top: 4px;
-    }
-    /* Container drone qui se déplace */
-    .drone-container {
-      position: absolute;
-      left: 50%;
-      top: 50%;
-      transform: translate(-50%, -50%);
-      transform-style: preserve-3d;
-      transition: left 0.15s ease-out, top 0.15s ease-out;
-      z-index: 20;
-    }
-    .drone-container .cube {
-      width: 60px;
-      height: 60px;
-      transform-style: preserve-3d;
-    }
-    .drone-container .cube-face {
-      width: 60px;
-      height: 60px;
-      font-size: 0.5rem;
-    }
-    .drone-container .cube-face.front  { transform: rotateY(0deg) translateZ(30px); }
-    .drone-container .cube-face.back   { transform: rotateY(180deg) translateZ(30px); }
-    .drone-container .cube-face.right  { transform: rotateY(90deg) translateZ(30px); }
-    .drone-container .cube-face.left   { transform: rotateY(-90deg) translateZ(30px); }
-    .drone-container .cube-face.top    { transform: rotateX(90deg) translateZ(30px); }
-    .drone-container .cube-face.bottom { transform: rotateX(-90deg) translateZ(30px); }
-    /* Trail 3D */
-    .trail-point {
-      position: absolute;
-      width: 6px;
-      height: 6px;
-      background: #fbbf24;
-      border-radius: 50%;
-      transform: translate(-50%, -50%);
-      box-shadow: 0 0 8px #fbbf24;
-    }
-    /* Axes indicateurs */
-    .axis {
-      position: absolute;
-      font-size: 0.7rem;
-      font-weight: bold;
-      padding: 2px 6px;
-      border-radius: 4px;
-    }
-    .axis-x {
-      right: 20px;
-      top: 50%;
-      background: rgba(239, 68, 68, 0.8);
-      color: white;
-    }
-    .axis-y {
-      left: 50%;
-      top: 20px;
-      background: rgba(34, 197, 94, 0.8);
-      color: white;
-      transform: translateX(-50%);
-    }
-    /* Glow effect drone */
-    .drone-container::after {
-      content: '';
-      position: absolute;
-      width: 80px;
-      height: 80px;
-      background: radial-gradient(circle, rgba(239, 68, 68, 0.4) 0%, transparent 70%);
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      border-radius: 50%;
-      z-index: -1;
     }
 
     /* Drift Map */
@@ -848,40 +732,16 @@ const char index_html[] PROGMEM = R"rawliteral(
           <h3>Preuve de Dérive Inertielle (PoC) — Pourquoi le GPS/VIO est Obligatoire</h3>
         </div>
         <div style="display: flex; gap: 24px; flex-wrap: wrap;">
-          <!-- ESPACE 3D COMPLET avec cube qui dérive -->
+          <!-- PLAN 2D - Visualisation de la Dérive -->
           <div style="flex: 2; min-width: 450px;">
             <div style="text-align: center; margin-bottom: 12px;">
-              <span class="stat-label">Espace 3D — Visualisation de la Dérive</span>
+              <span class="stat-label">Plan 2D — Visualisation de la Dérive</span>
             </div>
-            <div class="world-3d-container">
-              <div class="world-3d" id="world3d">
-                <!-- Grille au sol -->
-                <div class="ground-grid" id="groundGrid"></div>
-                <!-- Origine marker -->
-                <div class="origin-marker" id="originMarker">
-                  <div class="origin-pole"></div>
-                  <div class="origin-label">ORIGINE</div>
-                </div>
-                <!-- Cube drone qui se déplace -->
-                <div class="drone-container" id="droneContainer">
-                  <div class="cube" id="cube3d">
-                    <div class="cube-face front">AVANT</div>
-                    <div class="cube-face back">ARRIÈRE</div>
-                    <div class="cube-face right">DROITE</div>
-                    <div class="cube-face left">GAUCHE</div>
-                    <div class="cube-face top">HAUT</div>
-                    <div class="cube-face bottom">BAS</div>
-                  </div>
-                  <!-- Trail 3D -->
-                  <div class="drone-trail" id="droneTrail"></div>
-                </div>
-                <!-- Axes -->
-                <div class="axis axis-x"><span>+X</span></div>
-                <div class="axis axis-y"><span>+Y</span></div>
-              </div>
-              <div class="world-3d-info">
-                <span id="world3d_pos">Position: (0.0, 0.0) m</span>
-                <span id="world3d_dist">Distance: 0.0 m</span>
+            <div class="drift-2d-container">
+              <canvas id="drift2DCanvas" width="450" height="350"></canvas>
+              <div class="drift-2d-info">
+                <span id="drift2d_pos">Position: (0.0, 0.0) m</span>
+                <span id="drift2d_dist">Distance: 0.0 m</span>
               </div>
             </div>
             <div style="display: flex; gap: 10px; margin-top: 12px; justify-content: center; flex-wrap: wrap;">
@@ -894,12 +754,6 @@ const char index_html[] PROGMEM = R"rawliteral(
                 <option value="50">Échelle: 50m</option>
                 <option value="100">Échelle: 100m</option>
                 <option value="500">Échelle: 500m</option>
-              </select>
-              <select id="cameraAngle" onchange="updateCameraAngle()" style="padding: 8px; background: var(--input-bg); color: var(--text); border: 1px solid var(--card-border); border-radius: 6px;">
-                <option value="iso" selected>Vue Isométrique</option>
-                <option value="top">Vue Dessus</option>
-                <option value="side">Vue Côté</option>
-                <option value="front">Vue Face</option>
               </select>
             </div>
           </div>
@@ -965,9 +819,21 @@ const char index_html[] PROGMEM = R"rawliteral(
           <div style="flex: 3; min-width: 500px;">
             <canvas id="accelGraph" width="700" height="250"></canvas>
             <div style="display: flex; gap: 10px; margin-top: 10px; justify-content: center; align-items: center; flex-wrap: wrap;">
+              <span class="stat-label">Axe:</span>
+              <select id="accelAxisSelect" onchange="updateAccelAxisSelect()" style="padding: 8px 12px; background: var(--input-bg); color: var(--text); border: 1px solid var(--card-border); border-radius: 6px; font-family: Consolas;">
+                <option value="all">Tous (X, Y, Z)</option>
+                <option value="xy">X et Y seulement</option>
+                <option value="x">Ax uniquement</option>
+                <option value="y">Ay uniquement</option>
+                <option value="z">Az uniquement</option>
+              </select>
               <span class="stat-label">Échelle:</span>
               <select id="accelGraphScale" onchange="updateAccelGraphScale()" style="padding: 8px 12px; background: var(--input-bg); color: var(--text); border: 1px solid var(--card-border); border-radius: 6px; font-family: Consolas;">
+                <option value="0.001">±0.001 G (ultra-fin)</option>
+                <option value="0.002">±0.002 G</option>
+                <option value="0.005">±0.005 G</option>
                 <option value="0.01">±0.01 G (micro)</option>
+                <option value="0.02">±0.02 G</option>
                 <option value="0.05">±0.05 G (fin)</option>
                 <option value="0.1">±0.1 G (précis)</option>
                 <option value="0.5">±0.5 G (normal)</option>
@@ -992,16 +858,16 @@ const char index_html[] PROGMEM = R"rawliteral(
               <span class="stat-value" id="graph_az">0.0000</span>
             </div>
             <div class="stat-row" style="margin-top: 12px; border-top: 2px solid var(--warning);">
-              <span class="stat-label">Bruit X (σ)</span>
-              <span class="stat-value warning" id="graph_noise_x">0.0000</span>
+              <span class="stat-label">Bruit (σ)</span>
+              <span class="stat-value warning" id="graph_noise">0.0000</span>
             </div>
             <div class="stat-row">
-              <span class="stat-label">Bruit Y (σ)</span>
-              <span class="stat-value warning" id="graph_noise_y">0.0000</span>
+              <span class="stat-label">Min</span>
+              <span class="stat-value" id="graph_min">0.0000</span>
             </div>
             <div class="stat-row">
-              <span class="stat-label">Bruit Z (σ)</span>
-              <span class="stat-value warning" id="graph_noise_z">0.0000</span>
+              <span class="stat-label">Max</span>
+              <span class="stat-value" id="graph_max">0.0000</span>
             </div>
             <div class="stat-row" style="margin-top: 12px;">
               <span class="stat-label">Plage actuelle</span>
@@ -1204,6 +1070,7 @@ window.onload = function() {
   loadPID();
   initAccelGraph();
   initDriftMap();
+  initDrift2D();
 };
 
 // ==================== ACCELEROMETER GRAPH ====================
@@ -1211,35 +1078,50 @@ let accelGraphCtx;
 let accelDataX = [], accelDataY = [], accelDataZ = [];
 const GRAPH_MAX_POINTS = 200;
 let accelGraphScale = 2.0; // Default ±2G
+let accelAxisMode = 'all'; // 'all', 'xy', 'x', 'y', 'z'
 
 function initAccelGraph() {
   const canvas = document.getElementById('accelGraph');
   if (!canvas) return;
   accelGraphCtx = canvas.getContext('2d');
   updateAccelGraphScale();
+  updateAccelAxisSelect();
 }
 
 function clearAccelGraph() {
   accelDataX = []; accelDataY = []; accelDataZ = [];
 }
 
+function updateAccelAxisSelect() {
+  const select = document.getElementById('accelAxisSelect');
+  if (select) {
+    accelAxisMode = select.value;
+  }
+}
+
 function updateAccelGraphScale() {
   const select = document.getElementById('accelGraphScale');
   if (select) {
     accelGraphScale = parseFloat(select.value);
-    document.getElementById('graph_range').innerText = '±' + accelGraphScale.toFixed(3) + ' G';
+    document.getElementById('graph_range').innerText = '±' + accelGraphScale.toFixed(4) + ' G';
   }
 }
 
 function autoScaleAccelGraph() {
-  // Trouver le max des données actuelles
+  // Trouver le max des données actuelles selon l'axe sélectionné
   if (accelDataX.length < 10) return;
-  
-  const allData = [...accelDataX, ...accelDataY, ...accelDataZ];
-  const maxVal = Math.max(...allData.map(Math.abs));
-  
-  // Choisir l'échelle appropriée
-  const scales = [0.01, 0.05, 0.1, 0.5, 1, 2];
+
+  let dataToCheck = [];
+  if (accelAxisMode === 'x') dataToCheck = accelDataX;
+  else if (accelAxisMode === 'y') dataToCheck = accelDataY;
+  else if (accelAxisMode === 'z') dataToCheck = accelDataZ;
+  else if (accelAxisMode === 'xy') dataToCheck = [...accelDataX, ...accelDataY];
+  else dataToCheck = [...accelDataX, ...accelDataY, ...accelDataZ];
+
+  const maxVal = Math.max(...dataToCheck.map(Math.abs));
+
+  // Choisir l'échelle appropriée (avec les nouvelles options fines)
+  const scales = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.5, 1, 2];
   let bestScale = 2;
   for (const s of scales) {
     if (maxVal < s * 0.9) {
@@ -1247,10 +1129,10 @@ function autoScaleAccelGraph() {
       break;
     }
   }
-  
+
   accelGraphScale = bestScale;
   document.getElementById('accelGraphScale').value = bestScale;
-  document.getElementById('graph_range').innerText = '±' + bestScale.toFixed(3) + ' G';
+  document.getElementById('graph_range').innerText = '±' + bestScale.toFixed(4) + ' G';
 }
 
 function calcStdDev(arr) {
@@ -1263,31 +1145,42 @@ function calcStdDev(arr) {
 
 function updateAccelGraph(ax, ay, az) {
   if (!accelGraphCtx) return;
-  
+
   // Store data
   accelDataX.push(ax); accelDataY.push(ay); accelDataZ.push(az);
   if (accelDataX.length > GRAPH_MAX_POINTS) {
     accelDataX.shift(); accelDataY.shift(); accelDataZ.shift();
   }
-  
+
   // Update display values (plus de décimales pour micro-variations)
-  document.getElementById('graph_ax').innerText = ax.toFixed(4);
-  document.getElementById('graph_ay').innerText = ay.toFixed(4);
-  document.getElementById('graph_az').innerText = az.toFixed(4);
-  
-  // Calculate noise (standard deviation) pour chaque axe
+  document.getElementById('graph_ax').innerText = ax.toFixed(5);
+  document.getElementById('graph_ay').innerText = ay.toFixed(5);
+  document.getElementById('graph_az').innerText = az.toFixed(5);
+
+  // Calculate noise and min/max for selected axis
   if (accelDataX.length > 10) {
-    document.getElementById('graph_noise_x').innerText = calcStdDev(accelDataX).toFixed(4);
-    document.getElementById('graph_noise_y').innerText = calcStdDev(accelDataY).toFixed(4);
-    document.getElementById('graph_noise_z').innerText = calcStdDev(accelDataZ).toFixed(4);
+    let selectedData = [];
+    if (accelAxisMode === 'x') selectedData = accelDataX;
+    else if (accelAxisMode === 'y') selectedData = accelDataY;
+    else if (accelAxisMode === 'z') selectedData = accelDataZ;
+    else if (accelAxisMode === 'xy') selectedData = [...accelDataX.slice(-50), ...accelDataY.slice(-50)];
+    else selectedData = [...accelDataX.slice(-50), ...accelDataY.slice(-50), ...accelDataZ.slice(-50)];
+
+    const noise = calcStdDev(selectedData);
+    const minVal = Math.min(...selectedData.slice(-50));
+    const maxVal = Math.max(...selectedData.slice(-50));
+
+    document.getElementById('graph_noise').innerText = noise.toFixed(5);
+    document.getElementById('graph_min').innerText = minVal.toFixed(5);
+    document.getElementById('graph_max').innerText = maxVal.toFixed(5);
   }
-  
+
   // Draw graph
   const canvas = accelGraphCtx.canvas;
   const w = canvas.width, h = canvas.height;
   accelGraphCtx.fillStyle = '#0f172a';
   accelGraphCtx.fillRect(0, 0, w, h);
-  
+
   // Grid - 5 lignes horizontales
   accelGraphCtx.strokeStyle = '#334155';
   accelGraphCtx.lineWidth = 1;
@@ -1298,26 +1191,26 @@ function updateAccelGraph(ax, ay, az) {
     accelGraphCtx.lineTo(w, y);
     accelGraphCtx.stroke();
   }
-  
-  // Ligne centrale plus visible
+
+  // Ligne centrale plus visible (0G)
   accelGraphCtx.strokeStyle = '#475569';
   accelGraphCtx.lineWidth = 2;
   accelGraphCtx.beginPath();
   accelGraphCtx.moveTo(0, h/2);
   accelGraphCtx.lineTo(w, h/2);
   accelGraphCtx.stroke();
-  
+
   // Labels dynamiques selon l'échelle
   accelGraphCtx.fillStyle = '#94a3b8';
   accelGraphCtx.font = '10px Consolas';
   const s = accelGraphScale;
-  const fmt = s < 0.1 ? 3 : (s < 1 ? 2 : 1);
+  const fmt = s < 0.01 ? 4 : (s < 0.1 ? 3 : (s < 1 ? 2 : 1));
   accelGraphCtx.fillText('+' + s.toFixed(fmt) + 'G', 5, 15);
   accelGraphCtx.fillText('+' + (s/2).toFixed(fmt) + 'G', 5, h/4 + 5);
   accelGraphCtx.fillText(' 0G', 5, h/2 + 5);
   accelGraphCtx.fillText('-' + (s/2).toFixed(fmt) + 'G', 5, 3*h/4 + 5);
   accelGraphCtx.fillText('-' + s.toFixed(fmt) + 'G', 5, h - 5);
-  
+
   // Draw lines avec échelle dynamique
   const drawLine = (data, color) => {
     if (data.length < 2) return;
@@ -1336,19 +1229,47 @@ function updateAccelGraph(ax, ay, az) {
     }
     accelGraphCtx.stroke();
   };
-  
-  drawLine(accelDataX, '#ef4444'); // Red for X
-  drawLine(accelDataY, '#22c55e'); // Green for Y
-  drawLine(accelDataZ, '#3b82f6'); // Blue for Z
-  
-  // Légende en bas à droite
+
+  // Draw only selected axes
+  if (accelAxisMode === 'all') {
+    drawLine(accelDataX, '#ef4444'); // Red for X
+    drawLine(accelDataY, '#22c55e'); // Green for Y
+    drawLine(accelDataZ, '#3b82f6'); // Blue for Z
+  } else if (accelAxisMode === 'xy') {
+    drawLine(accelDataX, '#ef4444'); // Red for X
+    drawLine(accelDataY, '#22c55e'); // Green for Y
+  } else if (accelAxisMode === 'x') {
+    drawLine(accelDataX, '#ef4444'); // Red for X only
+  } else if (accelAxisMode === 'y') {
+    drawLine(accelDataY, '#22c55e'); // Green for Y only
+  } else if (accelAxisMode === 'z') {
+    drawLine(accelDataZ, '#3b82f6'); // Blue for Z only
+  }
+
+  // Légende en bas à droite selon l'axe sélectionné
   accelGraphCtx.font = '11px Consolas';
-  accelGraphCtx.fillStyle = '#ef4444';
-  accelGraphCtx.fillText('■ X', w - 80, h - 25);
-  accelGraphCtx.fillStyle = '#22c55e';
-  accelGraphCtx.fillText('■ Y', w - 55, h - 25);
-  accelGraphCtx.fillStyle = '#3b82f6';
-  accelGraphCtx.fillText('■ Z', w - 30, h - 25);
+  if (accelAxisMode === 'all') {
+    accelGraphCtx.fillStyle = '#ef4444';
+    accelGraphCtx.fillText('Ax', w - 80, h - 10);
+    accelGraphCtx.fillStyle = '#22c55e';
+    accelGraphCtx.fillText('Ay', w - 55, h - 10);
+    accelGraphCtx.fillStyle = '#3b82f6';
+    accelGraphCtx.fillText('Az', w - 30, h - 10);
+  } else if (accelAxisMode === 'xy') {
+    accelGraphCtx.fillStyle = '#ef4444';
+    accelGraphCtx.fillText('Ax', w - 55, h - 10);
+    accelGraphCtx.fillStyle = '#22c55e';
+    accelGraphCtx.fillText('Ay', w - 30, h - 10);
+  } else if (accelAxisMode === 'x') {
+    accelGraphCtx.fillStyle = '#ef4444';
+    accelGraphCtx.fillText('Ax uniquement', w - 100, h - 10);
+  } else if (accelAxisMode === 'y') {
+    accelGraphCtx.fillStyle = '#22c55e';
+    accelGraphCtx.fillText('Ay uniquement', w - 100, h - 10);
+  } else if (accelAxisMode === 'z') {
+    accelGraphCtx.fillStyle = '#3b82f6';
+    accelGraphCtx.fillText('Az uniquement', w - 100, h - 10);
+  }
 }
 
 // ==================== 3D DRIFT MAP ====================
@@ -1385,42 +1306,42 @@ function updateDriftMap(px, py) {
 
 function drawDriftMap() {
   if (!driftMapCtx) return;
-  
+
   const canvas = driftMapCtx.canvas;
   const w = canvas.width, h = canvas.height;
   const cx = w / 2, cy = h / 2;
-  
+
   // Clear with perspective gradient
   const grad = driftMapCtx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(w,h)/2);
   grad.addColorStop(0, '#1e293b');
   grad.addColorStop(1, '#0f172a');
   driftMapCtx.fillStyle = grad;
   driftMapCtx.fillRect(0, 0, w, h);
-  
+
   // Grid with perspective effect
   driftMapCtx.strokeStyle = '#334155';
   driftMapCtx.lineWidth = 1;
-  
+
   // Concentric circles (distance rings)
   for (let r = 1; r <= 4; r++) {
     const radius = (r / 4) * Math.min(cx, cy) * 0.9;
     driftMapCtx.beginPath();
     driftMapCtx.arc(cx, cy, radius, 0, Math.PI * 2);
     driftMapCtx.stroke();
-    
+
     // Distance label
     driftMapCtx.fillStyle = '#64748b';
     driftMapCtx.font = '10px Consolas';
     const dist = (r / 4 * driftMapScale).toFixed(0);
     driftMapCtx.fillText(dist + 'm', cx + radius + 3, cy);
   }
-  
+
   // Cross axes
   driftMapCtx.beginPath();
   driftMapCtx.moveTo(0, cy); driftMapCtx.lineTo(w, cy);
   driftMapCtx.moveTo(cx, 0); driftMapCtx.lineTo(cx, h);
   driftMapCtx.stroke();
-  
+
   // Axis labels
   driftMapCtx.fillStyle = '#94a3b8';
   driftMapCtx.font = '12px Consolas';
@@ -1428,13 +1349,7 @@ function drawDriftMap() {
   driftMapCtx.fillText('-X', 5, cy - 5);
   driftMapCtx.fillText('+Y', cx + 5, 15);
   driftMapCtx.fillText('-Y', cx + 5, h - 5);
-  
-  // Origin marker
-  driftMapCtx.fillStyle = '#22c55e';
-  driftMapCtx.beginPath();
-  driftMapCtx.arc(cx, cy, 6, 0, Math.PI * 2);
-  driftMapCtx.fill();
-  
+
   // Convert position to screen coords
   const toScreen = (px, py) => {
     const scale = Math.min(cx, cy) * 0.9 / driftMapScale;
@@ -1443,39 +1358,38 @@ function drawDriftMap() {
       y: cy - py * scale // Y inverted
     };
   };
-  
-  // Draw trail with fade effect
-  if (driftTrail.length > 1) {
-    for (let i = 1; i < driftTrail.length; i++) {
-      const p0 = toScreen(driftTrail[i-1].x, driftTrail[i-1].y);
-      const p1 = toScreen(driftTrail[i].x, driftTrail[i].y);
-      
-      const alpha = 0.3 + 0.7 * (i / driftTrail.length);
-      driftMapCtx.strokeStyle = `rgba(251, 191, 36, ${alpha})`;
-      driftMapCtx.lineWidth = 2;
-      driftMapCtx.beginPath();
-      driftMapCtx.moveTo(p0.x, p0.y);
-      driftMapCtx.lineTo(p1.x, p1.y);
-      driftMapCtx.stroke();
+
+  // Draw continuous green trajectory line from origin (0,0) to current position
+  if (driftTrail.length > 0) {
+    driftMapCtx.strokeStyle = '#22c55e';
+    driftMapCtx.lineWidth = 2;
+    driftMapCtx.beginPath();
+    driftMapCtx.moveTo(cx, cy); // Start from origin (0,0)
+
+    for (let i = 0; i < driftTrail.length; i++) {
+      const p = toScreen(driftTrail[i].x, driftTrail[i].y);
+      driftMapCtx.lineTo(p.x, p.y);
     }
+    driftMapCtx.stroke();
   }
-  
-  // Current position marker
+
+  // Origin marker - white cross to indicate starting point
+  driftMapCtx.strokeStyle = '#ffffff';
+  driftMapCtx.lineWidth = 2;
+  const crossSize = 6;
+  driftMapCtx.beginPath();
+  driftMapCtx.moveTo(cx - crossSize, cy);
+  driftMapCtx.lineTo(cx + crossSize, cy);
+  driftMapCtx.moveTo(cx, cy - crossSize);
+  driftMapCtx.lineTo(cx, cy + crossSize);
+  driftMapCtx.stroke();
+
+  // Current position marker - orange filled circle (radius 5px)
   if (driftTrail.length > 0) {
     const last = driftTrail[driftTrail.length - 1];
     const p = toScreen(last.x, last.y);
-    
-    // Glow effect
-    const glow = driftMapCtx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 15);
-    glow.addColorStop(0, 'rgba(239, 68, 68, 0.8)');
-    glow.addColorStop(1, 'rgba(239, 68, 68, 0)');
-    driftMapCtx.fillStyle = glow;
-    driftMapCtx.beginPath();
-    driftMapCtx.arc(p.x, p.y, 15, 0, Math.PI * 2);
-    driftMapCtx.fill();
-    
-    // Solid center
-    driftMapCtx.fillStyle = '#ef4444';
+
+    driftMapCtx.fillStyle = '#f97316';
     driftMapCtx.beginPath();
     driftMapCtx.arc(p.x, p.y, 5, 0, Math.PI * 2);
     driftMapCtx.fill();
@@ -1523,164 +1437,166 @@ function resetDriftIntegration() {
   btn.classList.remove('btn-danger');
   btn.classList.add('btn-primary');
   resetDriftMap();
-  // Reset world 3D trail
-  world3dTrail = [];
-  const trailEl = document.getElementById('droneTrail');
-  if (trailEl) trailEl.innerHTML = '';
-  // Reset drone position
-  const container = document.getElementById('droneContainer');
-  if (container) {
-    container.style.left = '50%';
-    container.style.top = '50%';
-  }
+  drawDrift2D(0, 0);
 }
 
-// Trail 3D pour l'espace monde
-let world3dTrail = [];
-const MAX_WORLD_TRAIL = 100;
-let currentCameraAngle = 'iso';
+// ==================== PLAN 2D DERIVE ====================
+let drift2DCtx;
 
-function updateCameraAngle() {
-  const angle = document.getElementById('cameraAngle').value;
-  currentCameraAngle = angle;
-  const grid = document.getElementById('groundGrid');
-  const world = document.getElementById('world3d');
-  
-  if (angle === 'iso') {
-    grid.style.transform = 'translateX(-50%) rotateX(70deg)';
-  } else if (angle === 'top') {
-    grid.style.transform = 'translateX(-50%) rotateX(90deg)';
-  } else if (angle === 'side') {
-    grid.style.transform = 'translateX(-50%) rotateX(70deg) rotateZ(45deg)';
-  } else if (angle === 'front') {
-    grid.style.transform = 'translateX(-50%) rotateX(80deg) rotateZ(90deg)';
-  }
+function initDrift2D() {
+  const canvas = document.getElementById('drift2DCanvas');
+  if (!canvas) return;
+  drift2DCtx = canvas.getContext('2d');
+  drawDrift2D(0, 0);
 }
 
-function updateWorld3D(posX, posY, roll, pitch, yaw) {
-  const container = document.getElementById('droneContainer');
-  const worldCube = document.getElementById('cube3d');
-  const trailEl = document.getElementById('droneTrail');
-  
-  if (!container || !worldCube) return;
-  
-  // Calculer la position sur l'écran (pixels) - échelle adaptative
-  const scale = Math.max(20, 200 / Math.max(Math.abs(posX), Math.abs(posY), 1));
-  const screenX = 50 + (posX * scale / 6);  // % depuis le centre
-  const screenY = 50 - (posY * scale / 6);  // Y inversé pour l'écran
-  
-  // Limiter aux bords
-  const clampedX = Math.max(10, Math.min(90, screenX));
-  const clampedY = Math.max(15, Math.min(85, screenY));
-  
-  container.style.left = clampedX + '%';
-  container.style.top = clampedY + '%';
-  
-  // Rotation du cube selon attitude
-  worldCube.style.transform = `rotateX(${-pitch}deg) rotateY(${yaw}deg) rotateZ(${-roll}deg)`;
-  
-  // Ajouter au trail
-  if (driftIntegrating) {
-    world3dTrail.push({x: clampedX, y: clampedY, t: Date.now()});
-    if (world3dTrail.length > MAX_WORLD_TRAIL) world3dTrail.shift();
+function drawDrift2D(posX, posY) {
+  if (!drift2DCtx) return;
+
+  const canvas = drift2DCtx.canvas;
+  const w = canvas.width, h = canvas.height;
+  const cx = w / 2, cy = h / 2;
+
+  // Clear with gradient background
+  const grad = drift2DCtx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(w,h)/2);
+  grad.addColorStop(0, '#1e293b');
+  grad.addColorStop(1, '#0f172a');
+  drift2DCtx.fillStyle = grad;
+  drift2DCtx.fillRect(0, 0, w, h);
+
+  // Grid lines
+  drift2DCtx.strokeStyle = '#334155';
+  drift2DCtx.lineWidth = 1;
+
+  // Concentric circles (distance rings)
+  for (let r = 1; r <= 4; r++) {
+    const radius = (r / 4) * Math.min(cx, cy) * 0.9;
+    drift2DCtx.beginPath();
+    drift2DCtx.arc(cx, cy, radius, 0, Math.PI * 2);
+    drift2DCtx.stroke();
+
+    // Distance label
+    drift2DCtx.fillStyle = '#64748b';
+    drift2DCtx.font = '10px Consolas';
+    const dist = (r / 4 * driftMapScale).toFixed(0);
+    drift2DCtx.fillText(dist + 'm', cx + radius + 3, cy);
   }
-  
-  // Dessiner le trail
-  trailEl.innerHTML = '';
-  for (let i = 0; i < world3dTrail.length; i++) {
-    const pt = world3dTrail[i];
-    const age = (Date.now() - pt.t) / 5000; // fade sur 5s
-    const opacity = Math.max(0.1, 1 - age);
-    const size = Math.max(3, 6 * (1 - age * 0.5));
-    
-    const dot = document.createElement('div');
-    dot.className = 'trail-point';
-    dot.style.left = pt.x + '%';
-    dot.style.top = pt.y + '%';
-    dot.style.width = size + 'px';
-    dot.style.height = size + 'px';
-    dot.style.opacity = opacity;
-    trailEl.appendChild(dot);
-  }
-  
-  // Mettre à jour les infos
-  const posEl = document.getElementById('world3d_pos');
-  const distEl = document.getElementById('world3d_dist');
-  if (posEl) posEl.innerText = `X: ${posX.toFixed(2)}m, Y: ${posY.toFixed(2)}m`;
+
+  // Cross axes
+  drift2DCtx.beginPath();
+  drift2DCtx.moveTo(0, cy); drift2DCtx.lineTo(w, cy);
+  drift2DCtx.moveTo(cx, 0); drift2DCtx.lineTo(cx, h);
+  drift2DCtx.stroke();
+
+  // Axis labels
+  drift2DCtx.fillStyle = '#94a3b8';
+  drift2DCtx.font = '12px Consolas';
+  drift2DCtx.fillText('+X', w - 20, cy - 5);
+  drift2DCtx.fillText('-X', 5, cy - 5);
+  drift2DCtx.fillText('+Y', cx + 5, 15);
+  drift2DCtx.fillText('-Y', cx + 5, h - 5);
+
+  // Convert position to screen coords
+  const scale = Math.min(cx, cy) * 0.9 / driftMapScale;
+  const screenX = cx + posX * scale;
+  const screenY = cy - posY * scale; // Y inverted
+
+  // Draw green line from origin to current position
+  drift2DCtx.strokeStyle = '#22c55e';
+  drift2DCtx.lineWidth = 2;
+  drift2DCtx.beginPath();
+  drift2DCtx.moveTo(cx, cy);
+  drift2DCtx.lineTo(screenX, screenY);
+  drift2DCtx.stroke();
+
+  // Origin marker - green filled circle
+  drift2DCtx.fillStyle = '#22c55e';
+  drift2DCtx.beginPath();
+  drift2DCtx.arc(cx, cy, 6, 0, Math.PI * 2);
+  drift2DCtx.fill();
+
+  // Current position marker - orange filled circle
+  drift2DCtx.fillStyle = '#f97316';
+  drift2DCtx.beginPath();
+  drift2DCtx.arc(screenX, screenY, 6, 0, Math.PI * 2);
+  drift2DCtx.fill();
+
+  // Update info display
+  const posEl = document.getElementById('drift2d_pos');
+  const distEl = document.getElementById('drift2d_dist');
+  if (posEl) posEl.innerText = `Position: (${posX.toFixed(2)}, ${posY.toFixed(2)}) m`;
   if (distEl) {
     const dist = Math.sqrt(posX*posX + posY*posY);
-    distEl.innerText = `Distance: ${dist.toFixed(2)}m`;
+    distEl.innerText = `Distance: ${dist.toFixed(2)} m`;
   }
-  
+
   // Attitude display
   const attRoll = document.getElementById('att_roll');
   const attPitch = document.getElementById('att_pitch');
   const attYaw = document.getElementById('att_yaw');
-  if (attRoll) attRoll.innerText = roll.toFixed(1) + '°';
-  if (attPitch) attPitch.innerText = pitch.toFixed(1) + '°';
-  if (attYaw) attYaw.innerText = yaw.toFixed(1) + '°';
+  if (attRoll) attRoll.innerText = lastRoll.toFixed(1) + '°';
+  if (attPitch) attPitch.innerText = lastPitch.toFixed(1) + '°';
+  if (attYaw) attYaw.innerText = lastYaw.toFixed(1) + '°';
 }
 
 function updateDriftSimulation(ax, ay, az, roll, pitch) {
   // Store raw values for display
   lastAccX = ax; lastAccY = ay; lastAccZ = az;
   lastRoll = roll; lastPitch = pitch;
-  
+
   document.getElementById('drift_ax').innerText = ax.toFixed(4);
   document.getElementById('drift_ay').innerText = ay.toFixed(4);
-  
+
   // Update accelerometer graph
   updateAccelGraph(ax, ay, az);
-  
-  // Mise à jour de l'espace 3D même si pas en intégration (position 0,0)
-  updateWorld3D(driftPosX, driftPosY, roll, pitch, lastYaw);
-  
+
+  // Mise à jour du plan 2D même si pas en intégration (position 0,0)
+  drawDrift2D(driftPosX, driftPosY);
+
   if (!driftIntegrating) {
     // Still update drift map with current position even if not integrating
     if (driftTrail.length === 0) drawDriftMap();
     return;
   }
-  
+
   // Naive gravity compensation based on angles
   // This is intentionally imperfect to show drift
   const rollRad = roll * Math.PI / 180;
   const pitchRad = pitch * Math.PI / 180;
-  
+
   // Remove estimated gravity component (simplified)
   // Real gravity projects: gx = -sin(pitch), gy = sin(roll)*cos(pitch), gz = cos(roll)*cos(pitch)
   const gx_est = -Math.sin(pitchRad);
   const gy_est = Math.sin(rollRad) * Math.cos(pitchRad);
-  
+
   // Linear acceleration (with noise and bias - this is the problem!)
   const linAccX = (ax - gx_est) * G;
   const linAccY = (ay - gy_est) * G;
-  
+
   // First integration: Acceleration -> Velocity
   driftVelX += linAccX * DT;
   driftVelY += linAccY * DT;
-  
+
   // Second integration: Velocity -> Position
   driftPosX += driftVelX * DT;
   driftPosY += driftVelY * DT;
-  
+
   // Update display
   document.getElementById('drift_vx').innerText = driftVelX.toFixed(2);
   document.getElementById('drift_vy').innerText = driftVelY.toFixed(2);
   document.getElementById('drift_px').innerText = driftPosX.toFixed(2);
   document.getElementById('drift_py').innerText = driftPosY.toFixed(2);
-  
+
   const totalDrift = Math.sqrt(driftPosX*driftPosX + driftPosY*driftPosY);
   document.getElementById('drift_total').innerText = totalDrift.toFixed(2);
-  
+
   const elapsed = (Date.now() - driftStartTime) / 1000;
   document.getElementById('drift_time').innerText = elapsed.toFixed(1) + ' s';
-  
-  // Update 3D drift map
+
+  // Update drift maps
   updateDriftMap(driftPosX, driftPosY);
-  
-  // Mise à jour de l'espace 3D avec nouvelle position
-  updateWorld3D(driftPosX, driftPosY, roll, pitch, lastYaw);
-  
+  drawDrift2D(driftPosX, driftPosY);
+
   // Auto-scale if drift exceeds current scale
   if (totalDrift > driftMapScale * 0.8) {
     const scaleSelect = document.getElementById('driftMapScale');

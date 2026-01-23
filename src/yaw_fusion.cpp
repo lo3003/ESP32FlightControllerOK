@@ -4,7 +4,7 @@
 // ==================== CONFIGURATION ====================
 // Coefficient du filtre complémentaire
 // alpha = 0.98 : 98% gyro (réactif, court terme), 2% magnétomètre (stable, long terme)
-#define YAW_FUSION_ALPHA 0.98f
+#define YAW_FUSION_ALPHA 0.995f
 
 // --- DETECTION VALEURS ABERRANTES ---
 // Seuil max de changement d'angle par cycle (deg) - au-delà c'est considéré comme aberrant
@@ -21,7 +21,7 @@
 #define YAW_OUTLIER_COUNT_LIMIT     10
 
 // Coefficient filtre passe-bas supplémentaire pour le yaw final
-#define YAW_OUTPUT_FILTER_COEFF     0.15f   // Plus c'est bas, plus c'est lissé
+#define YAW_OUTPUT_FILTER_COEFF     0.02f   // Plus c'est bas, plus c'est lissé
 
 // ==================== VARIABLES D'ETAT ====================
 static float fused_yaw = 0.0f;          // Angle yaw fusionné (0-360°)
