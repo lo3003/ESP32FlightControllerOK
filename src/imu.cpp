@@ -28,7 +28,7 @@ static int16_t temperature;
 static float gyro_roll_filt = 0.0f;
 static float gyro_pitch_filt = 0.0f;
 static float gyro_yaw_filt = 0.0f;
-#define GYRO_PT1_COEFF 0.5f
+#define GYRO_PT1_COEFF 0.8f
 
 // --- Filtres de Kalman pour Roll et Pitch ---
 static Kalman kalman_roll;
@@ -152,7 +152,7 @@ static void imu_read_internal(DroneState *drone) {
     // Prendre le mutex avant d'accéder au bus I2C
     // Timeout de 2ms max pour garantir la priorité de l'IMU principal sans blocage trop long
     if (i2c_mutex != nullptr) {
-        if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(2)) != pdTRUE) {
+        if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(10)) != pdTRUE) {
             // Mutex occupé après 2ms: skip cette lecture (l'AltIMU utilise le bus)
             // Les anciennes valeurs seront conservées, pas de blocage
             return;
@@ -270,8 +270,8 @@ static void imu_read_internal(DroneState *drone) {
             kalman_roll.setRmeasure(0.01f);
             kalman_pitch.setRmeasure(0.01f);
         } else {
-            kalman_roll.setRmeasure(0.05f);
-            kalman_pitch.setRmeasure(0.05f);
+            kalman_roll.setRmeasure(0.30f);
+            kalman_pitch.setRmeasure(0.30f);
         }
 
         drone->angle_roll  = kalman_roll.update(angle_roll_acc, gyro_roll_dps, dt_s);

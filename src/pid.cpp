@@ -9,7 +9,7 @@
 
 // --- FLAG POUR DESACTIVER LE HEADING HOLD ---
 // Mettre à 1 pour activer, 0 pour désactiver (mode simple)
-#define HEADING_HOLD_ENABLED 1
+#define HEADING_HOLD_ENABLED 0
 
 // --- MEMOIRES PID ---
 // Note : pid_last_..._input stocke la dernière MESURE (Gyro) pour le D
