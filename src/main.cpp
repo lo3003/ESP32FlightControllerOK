@@ -13,7 +13,7 @@
 
 // --- FLAG POUR DESACTIVER LA FUSION YAW ---
 // Mettre à 1 pour activer, 0 pour désactiver
-#define YAW_FUSION_ENABLED 0
+#define YAW_FUSION_ENABLED 1
 
 DroneState drone;
 unsigned long loop_timer;
@@ -49,7 +49,7 @@ void setup() {
     // On ne lance PAS motors_write_direct(2000...) ici. On attend de connaître le mode.
 
     // 3. DEMARRAGE TÂCHE TELEMETRIE (WIFI)
-    start_telemetry_task(&drone); 
+    //start_telemetry_task(&drone); 
 
     // On attend un signal valide. Pendant ce temps, les ESC bipent (Signal Lost) ou attendent.
     unsigned long wait_start = millis();
@@ -118,7 +118,7 @@ void setup() {
         
         // Démarrage des tâches FreeRTOS
         imu_start_task();      
-        //alt_imu_start_task();  
+        alt_imu_start_task();  
 
         // Initialisation fusion yaw
         yaw_fusion_init();
@@ -170,7 +170,7 @@ void loop() {
 
         unsigned long t_imu_start = micros();
         imu_update(&drone);      // <-- snapshot non-bloquant
-        //alt_imu_update(&drone);  // <-- snapshot alt_imu non-bloquant
+        alt_imu_update(&drone);  // <-- snapshot alt_imu non-bloquant
 
         // Fusion Yaw (gyro + magnétomètre) - réduit à 50Hz pour économiser du CPU
 #if YAW_FUSION_ENABLED

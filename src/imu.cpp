@@ -28,7 +28,7 @@ static int16_t temperature;
 static float gyro_roll_filt = 0.0f;
 static float gyro_pitch_filt = 0.0f;
 static float gyro_yaw_filt = 0.0f;
-#define GYRO_PT1_COEFF 0.8f
+#define GYRO_PT1_COEFF 0.5f
 
 // --- Filtres de Kalman pour Roll et Pitch ---
 static Kalman kalman_roll;
@@ -270,8 +270,8 @@ static void imu_read_internal(DroneState *drone) {
             kalman_roll.setRmeasure(0.01f);
             kalman_pitch.setRmeasure(0.01f);
         } else {
-            kalman_roll.setRmeasure(0.30f);
-            kalman_pitch.setRmeasure(0.30f);
+            kalman_roll.setRmeasure(0.03f);
+            kalman_pitch.setRmeasure(0.03f);
         }
 
         drone->angle_roll  = kalman_roll.update(angle_roll_acc, gyro_roll_dps, dt_s);

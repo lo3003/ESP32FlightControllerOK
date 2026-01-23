@@ -9,7 +9,7 @@
 
 // --- FLAG POUR DESACTIVER LE HEADING HOLD ---
 // Mettre à 1 pour activer, 0 pour désactiver (mode simple)
-#define HEADING_HOLD_ENABLED 0
+#define HEADING_HOLD_ENABLED 1
 
 // --- MEMOIRES PID ---
 // Note : pid_last_..._input stocke la dernière MESURE (Gyro) pour le D
@@ -43,24 +43,24 @@ static unsigned long pid_inflight_timer = 0;
 // Appelé au démarrage pour charger des valeurs par défaut
 void pid_init_params(DroneState *drone) {
     // ROLL/PITCH
-    drone->p_pitch_roll = 2.5f;
-    drone->i_pitch_roll = 0.01f;
-    drone->d_pitch_roll = 8.0f;
+    drone->p_pitch_roll = 1.8f;
+    drone->i_pitch_roll = 0.002f;
+    drone->d_pitch_roll = 4.0f;
 
     // YAW (rate)
-    drone->p_yaw = 2.0f;
-    drone->i_yaw = 0.005f;
+    drone->p_yaw = 2.2f;
+    drone->i_yaw = 0.0002f;
     drone->d_yaw = 0.0f;
 
     // FEEDFORWARD
-    drone->ff_pitch_roll = 0.16f;
-    drone->ff_yaw        = 0.10f;
+    drone->ff_pitch_roll = 0;
+    drone->ff_yaw        = 0;
 
     // AUTO LEVEL
-    drone->p_level = 5.0f;
+    drone->p_level = 4.0f;
 
     // HEADING HOLD
-    drone->p_heading = 3.0f;
+    drone->p_heading = 1.1f;
 
     Serial.println("PID Params Initialized (Flight-Ready Mode + VBat Comp)");
 }

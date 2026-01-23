@@ -1027,7 +1027,7 @@ setInterval(() => {
       updateDriftSimulation(data.ax, data.ay, data.az, data.ar, data.ap);
     }
   });
-}, 200);
+}, 1000);
 
 // Motor test
 let activeMotor = 0;

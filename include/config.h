@@ -28,18 +28,18 @@
 #define RC_INVERT_YAW  0
 
 // --- PARAMETRES DE VOL (PID) ---
-#define PID_P_ROLL     1.5
-#define PID_I_ROLL     0
-#define PID_D_ROLL     5
+#define PID_P_ROLL     3
+#define PID_I_ROLL     0.002
+#define PID_D_ROLL     4
 #define PID_MAX_ROLL   400
 
-#define PID_P_PITCH    1.5
-#define PID_I_PITCH    0
-#define PID_D_PITCH    5
+#define PID_P_PITCH    3
+#define PID_I_PITCH    0.002
+#define PID_D_PITCH    4
 #define PID_MAX_PITCH  400
 
-#define PID_P_YAW      0
-#define PID_I_YAW      0
+#define PID_P_YAW      2
+#define PID_I_YAW      0.0002
 #define PID_D_YAW      0
 #define PID_MAX_YAW    400
 
