@@ -8,6 +8,11 @@
 // --- FreeRTOS ---
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
+
+// ==================== MUTEX I2C GLOBAL ====================
+// Ce mutex est partagé entre imu.cpp et alt_imu.cpp pour éviter les conflits I2C
+SemaphoreHandle_t i2c_mutex = nullptr;
 
 // --- Offsets calibration ---
 static double gyro_off_x = 0;
@@ -40,6 +45,9 @@ typedef struct {
     float angle_pitch;
     float angle_yaw;          // AJOUT
     float acc_total_vector;
+    float acc_x;              // Accélération X en G
+    float acc_y;              // Accélération Y en G
+    float acc_z;              // Accélération Z en G
     unsigned long last_dur_us;
     unsigned long last_ok_ms;
     bool ok;
@@ -66,12 +74,31 @@ void imu_init() {
     Wire.beginTransmission(MPU_ADDR); Wire.write(0x1C); Wire.write(0x10); Wire.endTransmission();
     Wire.beginTransmission(MPU_ADDR); Wire.write(0x1A); Wire.write(0x03); Wire.endTransmission();
 
-    Serial.println(F("IMU: Calib Gyro (1000 samples)..."));
-    digitalWrite(PIN_LED, HIGH);
+    Serial.println(F(""));
+    Serial.println(F("IMU: Calibration Gyro MPU6050 - NE PAS BOUGER LE DRONE!"));
+    Serial.println(F("IMU: Calibration en cours (5 secondes)..."));
 
     long gyro_sum_x = 0, gyro_sum_y = 0, gyro_sum_z = 0;
+    int valid_samples = 0;
 
-    for (int i = 0; i < 1000; i++) {
+    // Calibration pendant 5 secondes avec LED clignotante rapide (50ms)
+    unsigned long calib_start = millis();
+    unsigned long last_led_toggle = 0;
+    bool led_state = false;
+
+    while (millis() - calib_start < 5000) {
+        // Clignotement LED rapide (50ms on, 50ms off)
+        if (millis() - last_led_toggle >= 50) {
+            led_state = !led_state;
+            digitalWrite(PIN_LED, led_state);
+            last_led_toggle = millis();
+        }
+
+        // Signal ESC "heartbeat" variable (1000-1019µs) pour éviter timeout ESC
+        // Le signal oscille au lieu d'être statique, ce qui empêche la protection timeout
+        int pwm_heartbeat = 1000 + (millis() % 20);
+        motors_write_direct(pwm_heartbeat, pwm_heartbeat, pwm_heartbeat, pwm_heartbeat);
+
         Wire.beginTransmission(MPU_ADDR);
         Wire.write(0x43);
         Wire.endTransmission();
@@ -82,13 +109,18 @@ void imu_init() {
         gyro_sum_x += (int16_t)(Wire.read() << 8 | Wire.read());
         gyro_sum_y += (int16_t)(Wire.read() << 8 | Wire.read());
         gyro_sum_z += (int16_t)(Wire.read() << 8 | Wire.read());
+        valid_samples++;
 
         delayMicroseconds(2000);
     }
 
-    gyro_off_x = gyro_sum_x / 1000.0;
-    gyro_off_y = gyro_sum_y / 1000.0;
-    gyro_off_z = gyro_sum_z / 1000.0;
+    if (valid_samples > 0) {
+        gyro_off_x = (double)gyro_sum_x / valid_samples;
+        gyro_off_y = (double)gyro_sum_y / valid_samples;
+        gyro_off_z = (double)gyro_sum_z / valid_samples;
+    }
+
+    Serial.printf("IMU: %d echantillons collectes\n", valid_samples);
 
     // Configuration Kalman pour MPU6050
     kalman_roll.setQangle(0.001f);
@@ -106,6 +138,7 @@ void imu_init() {
 // ==================== IMU READ INTERNAL ====================
 static void imu_read_internal(DroneState *drone) {
     static unsigned long last_us = 0;
+    static unsigned long fail_count = 0;  // DEBUG: compteur d'échecs
     const unsigned long now_us = micros();
     float dt_s = 0.004f;
     if (last_us != 0) {
@@ -115,16 +148,40 @@ static void imu_read_internal(DroneState *drone) {
     }
     last_us = now_us;
 
+    // ========== SECTION I2C PROTEGEE PAR MUTEX ==========
+    // Prendre le mutex avant d'accéder au bus I2C
+    // Timeout de 2ms max pour garantir la priorité de l'IMU principal sans blocage trop long
+    if (i2c_mutex != nullptr) {
+        if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(10)) != pdTRUE) {
+            // Mutex occupé après 2ms: skip cette lecture (l'AltIMU utilise le bus)
+            // Les anciennes valeurs seront conservées, pas de blocage
+            return;
+        }
+    }
+
     Wire.beginTransmission(MPU_ADDR);
     Wire.write(0x3B);
-    Wire.endTransmission();
+    uint8_t err = Wire.endTransmission();
+
+    if (err != 0) {
+        if (i2c_mutex != nullptr) xSemaphoreGive(i2c_mutex);
+        fail_count++;
+        // Log supprimé pour éviter les lags (Serial.printf est bloquant)
+        drone->max_time_imu = 888888;
+        return;
+    }
 
     uint8_t count = Wire.requestFrom(MPU_ADDR, 14);
 
     if (count < 14) {
+        if (i2c_mutex != nullptr) xSemaphoreGive(i2c_mutex);
+        fail_count++;
+        // Log supprimé pour éviter les lags
         drone->max_time_imu = 888888;
         return;
     }
+    
+    fail_count = 0;  // Reset si succès
 
     acc_raw[0] = (int16_t)(Wire.read() << 8 | Wire.read());
     acc_raw[1] = (int16_t)(Wire.read() << 8 | Wire.read());
@@ -133,6 +190,10 @@ static void imu_read_internal(DroneState *drone) {
     gyro_raw[0] = (int16_t)(Wire.read() << 8 | Wire.read());
     gyro_raw[1] = (int16_t)(Wire.read() << 8 | Wire.read());
     gyro_raw[2] = (int16_t)(Wire.read() << 8 | Wire.read());
+
+    // Libérer le mutex après la lecture I2C
+    if (i2c_mutex != nullptr) xSemaphoreGive(i2c_mutex);
+    // ========== FIN SECTION I2C PROTEGEE ==========
 
     double gyro_x_cal = gyro_raw[0] - gyro_off_x;
     double gyro_y_cal = gyro_raw[1] - gyro_off_y;
@@ -176,6 +237,12 @@ static void imu_read_internal(DroneState *drone) {
                                     (float)(acc_pitch_val * acc_pitch_val) +
                                     (float)(acc_yaw_val * acc_yaw_val));
 
+    // Accélération normalisée en G (1G = 4096 LSB pour ±8g)
+    const float ACC_SCALE = 4096.0f;
+    drone->acc_x = (float)acc_pitch_val / ACC_SCALE;  // X = acc_pitch
+    drone->acc_y = (float)acc_roll_val / ACC_SCALE;   // Y = acc_roll
+    drone->acc_z = (float)acc_yaw_val / ACC_SCALE;    // Z = acc_z
+
     // Calcul angles accéléromètre
     float angle_pitch_acc = 0.0f, angle_roll_acc = 0.0f;
 
@@ -203,8 +270,8 @@ static void imu_read_internal(DroneState *drone) {
             kalman_roll.setRmeasure(0.01f);
             kalman_pitch.setRmeasure(0.01f);
         } else {
-            kalman_roll.setRmeasure(0.05f);
-            kalman_pitch.setRmeasure(0.05f);
+            kalman_roll.setRmeasure(0.03f);
+            kalman_pitch.setRmeasure(0.03f);
         }
 
         drone->angle_roll  = kalman_roll.update(angle_roll_acc, gyro_roll_dps, dt_s);
@@ -288,6 +355,9 @@ static void imu_task(void *parameter) {
         imu_snap.angle_pitch      = imu_state.angle_pitch;
         imu_snap.angle_yaw        = imu_state.angle_yaw;  // AJOUT
         imu_snap.acc_total_vector = imu_state.acc_total_vector;
+        imu_snap.acc_x            = imu_state.acc_x;
+        imu_snap.acc_y            = imu_state.acc_y;
+        imu_snap.acc_z            = imu_state.acc_z;
         imu_snap.last_dur_us      = dur;
         imu_snap.ok               = ok;
         if (ok) imu_snap.last_ok_ms = millis();
@@ -299,7 +369,22 @@ static void imu_task(void *parameter) {
 
 // ==================== API PUBLIQUE ====================
 void imu_start_task() {
-    if (imu_task_handle != nullptr) return;
+    if (imu_task_handle != nullptr) {
+        Serial.println(F("IMU: Task already running!"));
+        return;
+    }
+
+    // Créer le mutex I2C s'il n'existe pas encore
+    if (i2c_mutex == nullptr) {
+        i2c_mutex = xSemaphoreCreateMutex();
+        if (i2c_mutex == nullptr) {
+            Serial.println(F("IMU: ERREUR - Impossible de créer le mutex I2C!"));
+            return;
+        }
+        Serial.println(F("IMU: Mutex I2C créé"));
+    }
+
+    Serial.println(F("IMU: Starting FreeRTOS task..."));
 
     xTaskCreatePinnedToCore(
         imu_task,
@@ -310,6 +395,8 @@ void imu_start_task() {
         &imu_task_handle,
         0
     );
+    
+    Serial.println(F("IMU: Task started successfully"));
 }
 
 void imu_update(DroneState *drone) {
@@ -336,6 +423,9 @@ void imu_update(DroneState *drone) {
     drone->angle_pitch      = s.angle_pitch;
     drone->angle_yaw        = s.angle_yaw;  // AJOUT
     drone->acc_total_vector = s.acc_total_vector;
+    drone->acc_x            = s.acc_x;
+    drone->acc_y            = s.acc_y;
+    drone->acc_z            = s.acc_z;
     drone->current_time_imu = s.last_dur_us;
 }
 

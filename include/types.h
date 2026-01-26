@@ -31,6 +31,11 @@ typedef struct {
     float angle_pitch;       // deg
     float angle_yaw;         // deg (intégré gyro, pas utilisé pour PID yaw)
     float acc_total_vector;
+    
+    // Accélération normalisée (en G) pour PoC drift
+    float acc_x;             // G (axe X)
+    float acc_y;             // G (axe Y)
+    float acc_z;             // G (axe Z)
 
     // PID setpoints (rate)
     float pid_setpoint_roll;
@@ -58,6 +63,9 @@ typedef struct {
     // Auto-level (outer loop)
     float p_level;
 
+    // Heading Hold (maintien de cap)
+    float p_heading;
+
     // Web test
     int web_test_vals[5];
 
@@ -69,6 +77,20 @@ typedef struct {
 
     // Durée IMU (task) exposée au main
     unsigned long current_time_imu;
+
+    // Tension batterie (V)
+    float voltage_bat;
+
+    // --- Second IMU (AltIMU-10 v2) pour comparaison ---
+    float alt_acc_x;         // G (axe X)
+    float alt_acc_y;         // G (axe Y)
+    float alt_acc_z;         // G (axe Z)
+    float alt_gyro_roll;     // deg/s
+    float alt_gyro_pitch;    // deg/s
+    float alt_gyro_yaw;      // deg/s
+    float alt_angle_roll;    // deg (Kalman)
+    float alt_angle_pitch;   // deg (Kalman)
+    float alt_angle_yaw;     // deg (magnétomètre heading)
 } DroneState;
 
 #endif
