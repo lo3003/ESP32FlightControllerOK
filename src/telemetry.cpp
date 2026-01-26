@@ -725,6 +725,30 @@ const char index_html[] PROGMEM = R"rawliteral(
         </div>
       </div>
 
+      <!-- Carte Optical Flow & LiDAR -->
+      <div class="card">
+        <div class="card-header">
+          <div class="icon">🌊</div>
+          <h3>Optical Flow & LiDAR</h3>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Qualite (0-255)</span>
+          <span class="stat-value" id="flow_quality">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Distance Sol (m)</span>
+          <span class="stat-value" id="lidar_dist">0.000</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Flow X (rad/s)</span>
+          <span class="stat-value" id="flow_x">0.0000</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Flow Y (rad/s)</span>
+          <span class="stat-value" id="flow_y">0.0000</span>
+        </div>
+      </div>
+
       <!-- Carte Preuve de Dérive Inertielle - PLEINE LARGEUR -->
       <div class="card" style="grid-column: 1 / -1;">
         <div class="card-header">
@@ -1020,6 +1044,19 @@ setInterval(() => {
       // Colorer en rouge si écart > 5°
       document.getElementById("diff_roll").style.color = Math.abs(diffRoll) > 5 ? "var(--danger)" : "var(--warning)";
       document.getElementById("diff_pitch").style.color = Math.abs(diffPitch) > 5 ? "var(--danger)" : "var(--warning)";
+    }
+
+    // Optical Flow & LiDAR
+    document.getElementById("flow_quality").innerText = data.fq !== undefined ? data.fq : 0;
+    document.getElementById("lidar_dist").innerText = data.dist !== undefined ? data.dist.toFixed(3) : "0.000";
+    document.getElementById("flow_x").innerText = data.fx !== undefined ? data.fx.toFixed(4) : "0.0000";
+    document.getElementById("flow_y").innerText = data.fy !== undefined ? data.fy.toFixed(4) : "0.0000";
+    // Colorer la qualite selon la valeur
+    let fqEl = document.getElementById("flow_quality");
+    if (data.fq !== undefined) {
+      if (data.fq > 100) { fqEl.style.color = "var(--success)"; }
+      else if (data.fq > 50) { fqEl.style.color = "var(--warning)"; }
+      else { fqEl.style.color = "var(--danger)"; }
     }
 
     // Drift PoC - Update with accelerometer data
@@ -1625,8 +1662,8 @@ void telemetryTask(void * parameter) {
 
     server.on("/data", HTTP_GET, [](AsyncWebServerRequest *request){
         // Buffer statique pour éviter les allocations dynamiques String (cause de lag)
-        static char json_buffer[512];
-        
+        static char json_buffer[600];
+
         snprintf(json_buffer, sizeof(json_buffer),
             "{\"ar\":%.2f,\"ap\":%.2f,\"ay\":%.2f,"
             "\"r1\":%d,\"r2\":%d,\"r3\":%d,\"r4\":%d,"
@@ -1637,7 +1674,8 @@ void telemetryTask(void * parameter) {
             "\"alt_ar\":%.2f,\"alt_ap\":%.2f,"
             "\"alt_ax\":%.4f,\"alt_ay\":%.4f,\"alt_az\":%.4f,"
             "\"alt_gr\":%.2f,\"alt_gp\":%.2f,\"alt_gy\":%.2f,"
-            "\"alt_ayw\":%.1f}",
+            "\"alt_ayw\":%.1f,"
+            "\"fx\":%.4f,\"fy\":%.4f,\"fq\":%d,\"dist\":%.3f}",
             drone_data->angle_roll, drone_data->angle_pitch, drone_data->angle_yaw,
             drone_data->channel_1, drone_data->channel_2, drone_data->channel_3, drone_data->channel_4,
             drone_data->loop_time, drone_data->max_time_radio, drone_data->max_time_imu,
@@ -1648,7 +1686,8 @@ void telemetryTask(void * parameter) {
             drone_data->alt_angle_roll, drone_data->alt_angle_pitch,
             drone_data->alt_acc_x, drone_data->alt_acc_y, drone_data->alt_acc_z,
             drone_data->alt_gyro_roll, drone_data->alt_gyro_pitch, drone_data->alt_gyro_yaw,
-            drone_data->alt_angle_yaw
+            drone_data->alt_angle_yaw,
+            drone_data->flow_x_rad, drone_data->flow_y_rad, drone_data->flow_quality, drone_data->lidar_dist_m
         );
         request->send(200, "application/json", json_buffer);
     });

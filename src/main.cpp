@@ -10,6 +10,7 @@
 #include "motors.h"
 #include "esc_calibrate.h"
 #include "telemetry.h"
+#include "flow.h" // <-- Driver Optical Flow
 
 // --- FLAG POUR DESACTIVER LA FUSION YAW ---
 // Mettre à 1 pour activer, 0 pour désactiver
@@ -33,11 +34,7 @@ void setup() {
     analogReadResolution(12);
 
     // --- CORRECTION ESC : ON N'INITIALISE PAS LES MOTEURS TOUT DE SUITE ---
-    // Si on lance motors_init() ici, on envoie 1000us pendant les 30s de calibration.
-    // Cela provoque la mise en sécurité de certains ESC.
-    
-    // À la place, on force les pins à 0V (LOW). Les ESC vont biper "Signal Lost", mais ne se verrouilleront pas.
-    // NOTE : Vérifie que ces pins correspondent bien à tes defines dans config.h (souvent 12, 13, 14, 15 sur ESP32)
+    // On force les pins à 0V (LOW). Les ESC vont biper "Signal Lost", mais ne se verrouilleront pas.
     pinMode(12, OUTPUT); digitalWrite(12, LOW);
     pinMode(13, OUTPUT); digitalWrite(13, LOW);
     pinMode(14, OUTPUT); digitalWrite(14, LOW);
@@ -45,13 +42,14 @@ void setup() {
 
     radio_init();
     radio_start_task(); // Radio indépendante de la loop()
-
-    // On ne lance PAS motors_write_direct(2000...) ici. On attend de connaître le mode.
+    
+    // --- INIT OPTICAL FLOW ---
+    flow_init(); // Démarrage du port série pour le Matek
 
     // 3. DEMARRAGE TÂCHE TELEMETRIE (WIFI)
     start_telemetry_task(&drone); 
 
-    // On attend un signal valide. Pendant ce temps, les ESC bipent (Signal Lost) ou attendent.
+    // On attend un signal valide.
     unsigned long wait_start = millis();
     while(drone.channel_3 < 900) {
         radio_update(&drone);
@@ -64,9 +62,7 @@ void setup() {
     // 4. DECISION SELON LE STICK
     if(drone.channel_3 > 1900) {
         // ================= MODE CALIBRATION ESC =================
-        // L'utilisateur veut calibrer : ON INITIALISE LES MOTEURS MAINTENANT
         motors_init(); 
-        // On envoie direct le MAX throttle pour entrer en mode prog ESC
         motors_write_direct(2000, 2000, 2000, 2000);
 
         drone.current_mode = MODE_CALIBRATION;
@@ -74,8 +70,6 @@ void setup() {
 
     } else {
         // ================= MODE VOL NORMAL (SAFE) =================
-        // On reste silencieux vers les moteurs (LOW) pour ne pas déclencher le timeout ESC
-        
         drone.current_mode = MODE_SAFE;
 
         // ========== PHASE 1 : CALIBRATION GYRO/ACCEL ==========
@@ -99,7 +93,7 @@ void setup() {
         Serial.println(F("# >>> TOURNER LE DRONE DANS TOUS LES SENS #"));
         Serial.println(F("############################################"));
 
-        alt_imu_calibrate_mag();  // C'est ici que ça bloquait 20s
+        alt_imu_calibrate_mag();  // Calibration manuelle classique
 
         // Fin de calibration - LED fixe 1 seconde
         Serial.println(F(""));
@@ -110,11 +104,9 @@ void setup() {
         delay(1000);
         digitalWrite(PIN_LED, LOW);
 
-        // --- C'EST MAINTENANT QU'ON REVEILLE LES ESC ---
-        // La calibration longue est finie, on peut envoyer le signal PWM 1000us
+        // --- REVEIL ESC ---
         Serial.println(F("INITIALISATION MOTEURS..."));
         motors_init(); 
-        // Les ESC vont maintenant faire leur musique de démarrage "123" + Bips LiPo
         
         // Démarrage des tâches FreeRTOS
         imu_start_task();      
@@ -151,6 +143,11 @@ void loop() {
     }
 
     radio_update(&drone);
+    
+    // --- AJOUT CRITIQUE : LECTURE OPTICAL FLOW ---
+    flow_update(&drone); 
+    // ---------------------------------------------
+
     unsigned long t_radio = micros();
 
     // 2. Gestion LED Erreur
@@ -165,14 +162,11 @@ void loop() {
     if(drone.current_mode == MODE_CALIBRATION) {
         esc_calibrate_loop(&drone);
     } else {
-        // Au lieu de bloquer sur I2C ici:
-        // imu_read(&drone);
-
         unsigned long t_imu_start = micros();
         imu_update(&drone);      // <-- snapshot non-bloquant
         alt_imu_update(&drone);  // <-- snapshot alt_imu non-bloquant
 
-        // Fusion Yaw (gyro + magnétomètre) - réduit à 50Hz pour économiser du CPU
+        // Fusion Yaw (gyro + magnétomètre)
 #if YAW_FUSION_ENABLED
         static uint8_t fusion_counter = 0;
         if (drone.current_mode == MODE_ARMED || drone.current_mode == MODE_FLYING) {
@@ -187,7 +181,7 @@ void loop() {
 #endif
 
         unsigned long t_imu = micros();
-        (void)t_imu_start;   // durée "loop" IMU n'a plus de sens; drone.current_time_imu vient de la task
+        (void)t_imu_start;
 
         switch(drone.current_mode) {
             // ---------------- MODE SAFE ----------------
@@ -206,7 +200,7 @@ void loop() {
                         drone.angle_roll = 0;
                         imu_request_reset();      // Reset IMU angles
 #if YAW_FUSION_ENABLED
-                        yaw_fusion_reset(&drone); // Reset fusion yaw avec magnétomètre
+                        yaw_fusion_reset(&drone); // Reset fusion yaw
 #endif
                         loop_timer = micros();
                      }
@@ -294,8 +288,6 @@ void loop() {
 
         drone.loop_time = total_loop; 
         
-        // Si on détecte un gros lag (> 6000us), on enregistre le coupable
-        // MAIS on évite d'overwrite le code d'erreur 888888 (IMU CRASH)
         if (total_loop > 6000) {
             if(dur_radio > drone.max_time_radio) drone.max_time_radio = dur_radio;
             if(drone.max_time_imu != 888888 && dur_imu > drone.max_time_imu) drone.max_time_imu = dur_imu;
@@ -304,20 +296,12 @@ void loop() {
     }
 
     // --- OPTIMISATION MULTITÂCHE ---
-    // Gestion du Loop Time (250Hz = 4000µs)
     unsigned long time_now = micros();
-    
-    // Si on a fini les calculs tôt (qu'il reste du temps avant le prochain cycle)
     if (loop_timer + LOOP_TIME_US > time_now) {
         unsigned long remaining = (loop_timer + LOOP_TIME_US) - time_now;
-        
-        // Si on a plus de 1.5ms de marge, on "dort" 1ms pour laisser le WiFi travailler
-        // C'est LA ligne qui sauve la télémétrie
         if (remaining > 1500) {
-             vTaskDelay(1); // Libère le CPU pour ~1ms (WiFi, Télémétrie)
+             vTaskDelay(1); // Yield WiFi
         }
-        
-        // On finit le reste du temps (quelques µs) en attente active pour la précision PID
         while(micros() - loop_timer < LOOP_TIME_US);
     }
     

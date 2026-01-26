@@ -1,6 +1,9 @@
 #ifndef TYPES_H
 #define TYPES_H
 
+#include <stdint.h>
+#include <stdbool.h>
+
 // Modes de vol
 typedef enum {
     MODE_SAFE,           // Moteurs coupés, LED Fixe
@@ -91,6 +94,14 @@ typedef struct {
     float alt_angle_roll;    // deg (Kalman)
     float alt_angle_pitch;   // deg (Kalman)
     float alt_angle_yaw;     // deg (magnétomètre heading)
+
+    float flow_x_rad;       // Mouvement X (pixels/rad)
+    float flow_y_rad;       // Mouvement Y
+    uint8_t flow_quality;   // 0 à 255 (255 = parfait)
+    float lidar_dist_m;     // Distance sol en mètres
+    bool flow_valid;        // Si le capteur est vivant
+
+
 } DroneState;
 
 #endif

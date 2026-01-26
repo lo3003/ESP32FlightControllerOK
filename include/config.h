@@ -57,4 +57,9 @@
 #define IMU_CALIB_DELAY_US      2000    // spacing entre échantillons
 #define IMU_CALIB_STD_MAX_RAW   8.0f    // seuil "ça bouge" (en unités brutes gyro)
 
+#define PIN_FLOW_RX    16  // Connecté au TX du Matek
+#define PIN_FLOW_TX    17  // Connecté au RX du Matek
+#define FLOW_BAUD      115200
+
+
 #endif
