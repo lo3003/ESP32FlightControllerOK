@@ -49,7 +49,7 @@ void setup() {
     // On ne lance PAS motors_write_direct(2000...) ici. On attend de connaître le mode.
 
     // 3. DEMARRAGE TÂCHE TELEMETRIE (WIFI)
-    //start_telemetry_task(&drone); 
+    start_telemetry_task(&drone); 
 
     // On attend un signal valide. Pendant ce temps, les ESC bipent (Signal Lost) ou attendent.
     unsigned long wait_start = millis();
@@ -303,10 +303,23 @@ void loop() {
         }
     }
 
-    // Gestion Loop Time constant
-    unsigned long time_used = micros() - loop_timer;
+    // --- OPTIMISATION MULTITÂCHE ---
+    // Gestion du Loop Time (250Hz = 4000µs)
+    unsigned long time_now = micros();
     
-    // Si on est en avance, on attend (busy-wait pour précision)
-    while(micros() - loop_timer < LOOP_TIME_US);
+    // Si on a fini les calculs tôt (qu'il reste du temps avant le prochain cycle)
+    if (loop_timer + LOOP_TIME_US > time_now) {
+        unsigned long remaining = (loop_timer + LOOP_TIME_US) - time_now;
+        
+        // Si on a plus de 1.5ms de marge, on "dort" 1ms pour laisser le WiFi travailler
+        // C'est LA ligne qui sauve la télémétrie
+        if (remaining > 1500) {
+             vTaskDelay(1); // Libère le CPU pour ~1ms (WiFi, Télémétrie)
+        }
+        
+        // On finit le reste du temps (quelques µs) en attente active pour la précision PID
+        while(micros() - loop_timer < LOOP_TIME_US);
+    }
+    
     loop_timer = micros();
 }

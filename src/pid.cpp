@@ -5,7 +5,7 @@
 // --- TENSION DE REFERENCE POUR LA COMPENSATION (A ajuster selon ta batterie) ---
 // 12.0f pour 3S (11.1V nominal, 12.6V max)
 // 16.0f pour 4S (14.8V nominal, 16.8V max)
-#define PID_REF_VOLTAGE 12.0f 
+#define PID_REF_VOLTAGE 12.6f 
 
 // --- FLAG POUR DESACTIVER LE HEADING HOLD ---
 // Mettre à 1 pour activer, 0 pour désactiver (mode simple)
@@ -43,14 +43,14 @@ static unsigned long pid_inflight_timer = 0;
 // Appelé au démarrage pour charger des valeurs par défaut
 void pid_init_params(DroneState *drone) {
     // ROLL/PITCH
-    drone->p_pitch_roll = 1.8f;
-    drone->i_pitch_roll = 0.002f;
-    drone->d_pitch_roll = 4.0f;
+    drone->p_pitch_roll = PID_P_ROLL;
+    drone->i_pitch_roll = PID_I_ROLL;
+    drone->d_pitch_roll = PID_D_ROLL;
 
     // YAW (rate)
-    drone->p_yaw = 2.2f;
-    drone->i_yaw = 0.0002f;
-    drone->d_yaw = 0.0f;
+    drone->p_yaw = PID_P_YAW;
+    drone->i_yaw = PID_I_YAW;
+    drone->d_yaw = PID_D_YAW;
 
     // FEEDFORWARD
     drone->ff_pitch_roll = 0;
@@ -201,8 +201,7 @@ void pid_compute(DroneState *drone) {
     float tpa_factor = 1.0f;
     if (drone->channel_3 > 1500) {
         // Décommenter la ligne suivante pour activer le TPA
-        // tpa_factor = map(drone->channel_3, 1500, 2000, 100, 80) / 100.0f;
-        tpa_factor = 1.0f;
+        tpa_factor = map(drone->channel_3, 1500, 2000, 100, 90) / 100.0f;
     }
 
     // 3) COMPENSATION TENSION BATTERIE (V-Bat)
