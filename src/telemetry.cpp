@@ -1048,7 +1048,7 @@ setInterval(() => {
 
     // Optical Flow & LiDAR
     document.getElementById("flow_quality").innerText = data.fq !== undefined ? data.fq : 0;
-    document.getElementById("lidar_dist").innerText = data.dist !== undefined ? data.dist.toFixed(3) : "0.000";
+    document.getElementById("lidar_dist").innerText = data.li !== undefined ? data.li.toFixed(3) : "0.000";
     document.getElementById("flow_x").innerText = data.fx !== undefined ? data.fx.toFixed(4) : "0.0000";
     document.getElementById("flow_y").innerText = data.fy !== undefined ? data.fy.toFixed(4) : "0.0000";
     // Colorer la qualite selon la valeur
@@ -1675,7 +1675,7 @@ void telemetryTask(void * parameter) {
             "\"alt_ax\":%.4f,\"alt_ay\":%.4f,\"alt_az\":%.4f,"
             "\"alt_gr\":%.2f,\"alt_gp\":%.2f,\"alt_gy\":%.2f,"
             "\"alt_ayw\":%.1f,"
-            "\"fx\":%.4f,\"fy\":%.4f,\"fq\":%d,\"dist\":%.3f}",
+            "\"fx\":%.4f,\"fy\":%.4f,\"fq\":%d,\"li\":%.3f}",
             drone_data->angle_roll, drone_data->angle_pitch, drone_data->angle_yaw,
             drone_data->channel_1, drone_data->channel_2, drone_data->channel_3, drone_data->channel_4,
             drone_data->loop_time, drone_data->max_time_radio, drone_data->max_time_imu,

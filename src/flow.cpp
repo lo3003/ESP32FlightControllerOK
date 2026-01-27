@@ -1,120 +1,146 @@
-// src/flow.cpp
 #include <Arduino.h>
 #include "flow.h"
 #include "config.h"
+#include "types.h"
 
 // --- CONFIGURATION ---
-// Utiliser UART 2 pour les pins 16/17 (Plus stable que UART 1)
-static HardwareSerial FlowSerial(2);
+static HardwareSerial FlowSerial(2); // UART 2 sur pins 16/17
 
-// Décommentez pour voir les données brutes dans le moniteur série USB (Attention au spam)
-// #define DEBUG_FLOW_RAW 
-
+// --- CONSTANTES MSP V2 ---
 #define MSP_HEADER_START 0x24 // '$'
-#define MSP_OPFLOW       105  // ID Optical Flow
-#define MSP_RANGEFINDER  119  // ID Lidar
+#define MSP_HEADER_X     0x58 // 'X' (V2)
+#define MSP_HEADER_M     0x4D // 'M' (V1 - Support Legacy)
+
+// Nouveaux IDs découverts lors de vos tests
+#define MSP2_SENSOR_RANGEFINDER 0x1F01 // Lidar
+#define MSP2_SENSOR_OPTIC_FLOW  0x1F02 // Optical Flow
 
 // Variables internes
 static uint8_t msp_state = 0;
-static uint8_t msp_msg_size = 0;
-static uint8_t msp_msg_type = 0;
 static uint8_t msp_crc = 0;
-static uint8_t msp_buffer[64];
-static uint8_t msp_idx = 0;
+static uint16_t msp_idx = 0;
+static uint16_t msp_payload_size = 0;
+static uint16_t msp_cmd_id = 0;
+static uint8_t msp_buffer[128];
 
-void flow_init() {
-    // Note: Serial2 est le hardware natif pour 16/17
-    FlowSerial.begin(FLOW_BAUD, SERIAL_8N1, PIN_FLOW_RX, PIN_FLOW_TX);
-    Serial.println("FLOW: Init Optical Flow sur Serial2 (Pins 16/17)");
+// --- CRC8 pour MSP V2 ---
+uint8_t crc8_dvb_s2(uint8_t crc, uint8_t a) {
+    crc ^= a;
+    for (int ii = 0; ii < 8; ++ii) {
+        if (crc & 0x80) crc = (crc << 1) ^ 0xD5;
+        else crc = crc << 1;
+    }
+    return crc;
 }
 
-void process_msp_packet(DroneState* drone) {
-    if (msp_msg_type == MSP_OPFLOW) {
-        // Le Matek envoie Motion X, Motion Y (int16) et Qualité (uint8)
-        int16_t motion_x = (int16_t)(msp_buffer[0] | (msp_buffer[1] << 8));
-        int16_t motion_y = (int16_t)(msp_buffer[2] | (msp_buffer[3] << 8));
-        uint8_t qual     = msp_buffer[4];
+void flow_init() {
+    // Initialisation avec les pins validées (16 et 17)
+    FlowSerial.begin(FLOW_BAUD, SERIAL_8N1, PIN_FLOW_RX, PIN_FLOW_TX);
+    // Note: FLOW_BAUD doit être 115200 dans config.h ou flow.h
+}
 
-        // Stockage dans l'état global
-        // Note: Ce sont des "raw pixels" ou "deci-pixels", pas encore des radians/sec
-        // Il faudra les convertir avec la distance plus tard
+void process_packet_v2(DroneState* drone) {
+    // 1. LIDAR (ID 0x1F01)
+    if (msp_cmd_id == MSP2_SENSOR_RANGEFINDER) {
+        // Structure: [Qualité(1)] + [Distance mm (4, int32)]
+        // uint8_t quality = msp_buffer[0]; 
+        int32_t dist_mm = msp_buffer[1] | (msp_buffer[2] << 8) | (msp_buffer[3] << 16) | (msp_buffer[4] << 24);
+
+        if (dist_mm > 0 && dist_mm < 5000) {
+            drone->lidar_dist_m = dist_mm / 1000.0f; // Conversion mm -> mètres
+        } else {
+            drone->lidar_dist_m = -1.0f; // Hors de portée
+        }
+    }
+    
+    // 2. OPTICAL FLOW (ID 0x1F02)
+    else if (msp_cmd_id == MSP2_SENSOR_OPTIC_FLOW) {
+        // Structure: [Qualité(1)] + [MotionX (4)] + [MotionY (4)]
+        uint8_t quality = msp_buffer[0];
+        int32_t motion_x = msp_buffer[1] | (msp_buffer[2] << 8) | (msp_buffer[3] << 16) | (msp_buffer[4] << 24);
+        int32_t motion_y = msp_buffer[5] | (msp_buffer[6] << 8) | (msp_buffer[7] << 16) | (msp_buffer[8] << 24);
+
+        // Mise à jour de l'état du drone
+        // Note: On divise par 10.0f pour garder l'échelle standard, à ajuster selon le vol
         drone->flow_x_rad = motion_x / 10.0f; 
         drone->flow_y_rad = motion_y / 10.0f;
-        drone->flow_quality = qual;
+        drone->flow_quality = quality;
         drone->flow_valid = true;
-
-        #ifdef DEBUG_FLOW_RAW
-        Serial.printf("FLOW: X=%d Y=%d Q=%d\n", motion_x, motion_y, qual);
-        #endif
-
-    } else if (msp_msg_type == MSP_RANGEFINDER) {
-        // Distance en mm
-        int16_t dist_mm = (int16_t)(msp_buffer[0] | (msp_buffer[1] << 8));
-        
-        // Si vous voulez tester SANS lidar réel, on peut tricher ici :
-        // if (dist_mm < 0) dist_mm = 1000; // Simule 1m de hauteur
-
-        if (dist_mm > 0 && dist_mm < 2000) { 
-             drone->lidar_dist_m = dist_mm / 1000.0f; 
-        } else {
-             drone->lidar_dist_m = -1.0f; // Trop loin ou erreur
-        }
     }
 }
 
 void flow_update(DroneState* drone) {
-    // Lecture en boucle
-    while (FlowSerial.available()) {
-        uint8_t c = FlowSerial.read();
+    // Lecture limitée pour ne jamais bloquer la boucle principale (Anti-Freeze)
+    int max_bytes = 64;
 
-        // Machine à état MSP v1
+    while (FlowSerial.available() && max_bytes > 0) {
+        uint8_t c = FlowSerial.read();
+        max_bytes--;
+
         switch (msp_state) {
-            case 0: // Attend '$'
-                if (c == '$') msp_state++; 
-                else {
-                    // Si on reçoit des données mais pas de $, c'est peut-être un mauvais baudrate
-                    // ou du bruit.
-                }
+            case 0: // IDLE
+                if (c == MSP_HEADER_START) msp_state = 1; 
                 break;
-            case 1: // Attend 'M'
-                if (c == 'M') msp_state++; else msp_state = 0; break;
-            case 2: // Attend '>'
-                if (c == '>') msp_state++; else msp_state = 0; break;
-            case 3: // Taille Payload
-                msp_msg_size = c;
-                if (msp_msg_size > 60) msp_state = 0; // Protection buffer
-                else {
-                    msp_crc = c; // CRC commence avec la taille
-                    msp_state++;
-                }
-                break;
-            case 4: // Type Message
-                msp_msg_type = c;
-                msp_crc ^= c;
-                msp_idx = 0;
-                msp_state++;
-                break;
-            case 5: // Payload
-                if (msp_idx < msp_msg_size) {
-                    msp_buffer[msp_idx++] = c;
-                    msp_crc ^= c;
-                }
-                if (msp_idx == msp_msg_size) {
-                    msp_state++;
-                }
-                break;
-            case 6: // Verification CRC
-                if (msp_crc == c) {
-                    process_msp_packet(drone);
+            
+            case 1: // VERSION
+                if (c == 'X') { // V2 (Celle de votre capteur)
+                    msp_state = 10; 
+                } else if (c == 'M') { // V1 (Legacy, au cas où)
+                    msp_state = 0; // On ignore V1 pour simplifier, vu que votre capteur est V2
                 } else {
-                    // Erreur CRC -> Debug optionnel
-                    // Serial.println("FLOW: CRC Error");
+                    msp_state = 0;
+                }
+                break;
+
+            // --- DECODAGE V2 ---
+            case 10: // TYPE (<, >, !)
+                msp_crc = 0; 
+                msp_idx = 0; 
+                msp_state = 11; 
+                break;
+
+            case 11: // HEADER (Flag + Cmd + Size)
+                msp_buffer[msp_idx++] = c; 
+                msp_crc = crc8_dvb_s2(msp_crc, c);
+                
+                if (msp_idx == 5) {
+                    // Extraction Cmd et Size
+                    msp_cmd_id = msp_buffer[1] | (msp_buffer[2] << 8);
+                    msp_payload_size = msp_buffer[3] | (msp_buffer[4] << 8);
+                    
+                    msp_idx = 0;
+                    // Protection contre les payloads géants
+                    if (msp_payload_size > 100) {
+                        msp_state = 0; 
+                    } else {
+                        msp_state = (msp_payload_size > 0) ? 12 : 13;
+                    }
+                }
+                break;
+
+            case 12: // PAYLOAD
+                msp_buffer[msp_idx++] = c; 
+                msp_crc = crc8_dvb_s2(msp_crc, c);
+                if (msp_idx == msp_payload_size) msp_state = 13; 
+                break;
+
+            case 13: // CHECKSUM
+                if (msp_crc == c) {
+                    process_packet_v2(drone);
                 }
                 msp_state = 0; 
                 break;
+                
             default:
                 msp_state = 0;
                 break;
         }
+    }
+
+    // --- SECURITE LIDAR (Optionnelle) ---
+    // Si le Lidar ne capte rien (trop haut ou bug), on garde une valeur saine pour éviter les divisions par zéro
+    // (À retirer une fois en vol réel si vous voulez que le PosHold se désactive sans Lidar)
+    if (drone->lidar_dist_m <= 0.0f) {
+         drone->lidar_dist_m = 1.0f; // Décommentez pour forcer 1m en cas d'erreur
     }
 }
