@@ -10,18 +10,17 @@
 #include "motors.h"
 #include "esc_calibrate.h"
 #include "telemetry.h"
-#include "flow.h" // <-- Driver Optical Flow
+#include "flow.h" 
 
 // --- FLAG POUR DESACTIVER LA FUSION YAW ---
-// Mettre à 1 pour activer, 0 pour désactiver
 #define YAW_FUSION_ENABLED 1
 
 DroneState drone;
 unsigned long loop_timer;
 unsigned long arming_timer = 0;
-unsigned long disarm_debounce_timer = 0; // Chrono pour la coupure Radio
-unsigned long angle_security_timer = 0;  // Chrono pour l'angle excessif
-int error_code = 0;                      // 0=OK, 1=CRASH ANGLE, 2=PERTE RADIO
+unsigned long disarm_debounce_timer = 0; 
+unsigned long angle_security_timer = 0;  
+int error_code = 0;                      
 
 void setup() {
     Serial.begin(115200);
@@ -33,93 +32,71 @@ void setup() {
     pinMode(PIN_BATTERY, INPUT);
     analogReadResolution(12);
 
-    // --- CORRECTION ESC : ON N'INITIALISE PAS LES MOTEURS TOUT DE SUITE ---
-    // On force les pins à 0V (LOW). Les ESC vont biper "Signal Lost", mais ne se verrouilleront pas.
+    // Initialisation Pins Moteurs (Sécurité)
     pinMode(12, OUTPUT); digitalWrite(12, LOW);
     pinMode(13, OUTPUT); digitalWrite(13, LOW);
     pinMode(14, OUTPUT); digitalWrite(14, LOW);
     pinMode(15, OUTPUT); digitalWrite(15, LOW);
 
     radio_init();
-    radio_start_task(); // Radio indépendante de la loop()
+    radio_start_task(); 
     
-    // --- INIT OPTICAL FLOW ---
-    flow_init(); // Démarrage du port série pour le Matek
+    // --- 1. LANCEMENT TACHE DE FOND FLOW (FreeRTOS) ---
+    // La lecture se fera désormais toute seule sur le Coeur 0
+    flow_init(&drone); 
 
-    // 3. DEMARRAGE TÂCHE TELEMETRIE (WIFI)
+    // --- 2. LANCEMENT TACHE DE FOND WIFI ---
     start_telemetry_task(&drone); 
 
-    // On attend un signal valide.
+    // --- 3. ATTENTE SIGNAL RADIO (Le "Stress" rapide) ---
+    // Si la radio n'est pas allumée, ça clignote très vite ici. C'est NORMAL.
     unsigned long wait_start = millis();
     while(drone.channel_3 < 900) {
         radio_update(&drone);
-        // Clignotement rapide
         if((millis() / 50) % 2) digitalWrite(PIN_LED, HIGH); else digitalWrite(PIN_LED, LOW);
         delay(5);
-        if(millis() - wait_start > 15000) break; // Sécurité 15s
+        if(millis() - wait_start > 15000) break; 
     }
 
     // 4. DECISION SELON LE STICK
     if(drone.channel_3 > 1900) {
-        // ================= MODE CALIBRATION ESC =================
+        // MODE CALIBRATION ESC
         motors_init(); 
         motors_write_direct(2000, 2000, 2000, 2000);
-
         drone.current_mode = MODE_CALIBRATION;
         esc_calibrate_init();
-
     } else {
-        // ================= MODE VOL NORMAL (SAFE) =================
+        // MODE VOL NORMAL
         drone.current_mode = MODE_SAFE;
 
-        // ========== PHASE 1 : CALIBRATION GYRO/ACCEL ==========
-        Serial.println(F(""));
-        Serial.println(F("############################################"));
-        Serial.println(F("# PHASE 1 - CALIBRATION GYRO/ACCEL        #"));
-        Serial.println(F("# >>> NE PAS BOUGER LE DRONE <<<          #"));
-        Serial.println(F("############################################"));
+        // Calibration MPU6050
+        imu_init();            
+        
+        // Calibration AltIMU
+        alt_imu_init();        
 
-        imu_init();            // Calibration MPU6050 (5s)
-        alt_imu_init();        // Calibration AltIMU (5s)
-
-        // Pause visuelle
+        // Pause visuelle (LED Eteinte)
         digitalWrite(PIN_LED, LOW);
         delay(1000);
 
-        // ========== PHASE 2 : CALIBRATION MAGNETOMETRE ==========
-        Serial.println(F(""));
-        Serial.println(F("############################################"));
-        Serial.println(F("# PHASE 2 - CALIBRATION MAGNETOMETRE      #"));
-        Serial.println(F("# >>> TOURNER LE DRONE DANS TOUS LES SENS #"));
-        Serial.println(F("############################################"));
-
-        alt_imu_calibrate_mag();  // Calibration manuelle classique
+        // Calibration Magnétomètre (LED Clignote lentement ou s'éteint)
+        alt_imu_calibrate_mag();  
 
         // Fin de calibration - LED fixe 1 seconde
-        Serial.println(F(""));
-        Serial.println(F("############################################"));
-        Serial.println(F("# CALIBRATION TERMINEE                    #"));
-        Serial.println(F("############################################"));
         digitalWrite(PIN_LED, HIGH);
         delay(1000);
         digitalWrite(PIN_LED, LOW);
 
-        // --- REVEIL ESC ---
-        Serial.println(F("INITIALISATION MOTEURS..."));
         motors_init(); 
         
-        // Démarrage des tâches FreeRTOS
         imu_start_task();      
         alt_imu_start_task();  
-
-        // Initialisation fusion yaw
         yaw_fusion_init();
 
         pid_init();
         pid_init_params(&drone);
     }
 
-    // Initialisation des compteurs de diag
     drone.max_time_radio = 0;
     drone.max_time_imu = 0;
     drone.max_time_pid = 0;
@@ -130,7 +107,7 @@ void setup() {
 void loop() {
     unsigned long t_start = micros();
 
-    // Lecture tension batterie (filtrée) - seulement 1 fois sur 25 (10Hz)
+    // Lecture tension batterie (10Hz)
     static uint8_t bat_counter = 0;
     static float vbat_filter = 11.1f;
     if (++bat_counter >= 25) {
@@ -144,35 +121,36 @@ void loop() {
 
     radio_update(&drone);
     
-    // --- AJOUT CRITIQUE : LECTURE OPTICAL FLOW ---
-    flow_update(&drone); 
-    // ---------------------------------------------
-
+    // --- CORRECTION MAJEURE ---
+    // flow_update(&drone);  <-- SUPPRIMÉ ! 
+    // On ne l'appelle PLUS ici car la tâche FreeRTOS le fait déjà en arrière-plan.
+    // Le laisser créait le conflit et le lag.
+    
     unsigned long t_radio = micros();
 
-    // 2. Gestion LED Erreur
+    // Gestion LED (Heartbeat normal 500ms)
     if (error_code > 0) {
         if ((millis() % 50) < 25) digitalWrite(PIN_LED, HIGH);
         else digitalWrite(PIN_LED, LOW);
     } 
     else if (drone.current_mode == MODE_SAFE) {
-        digitalWrite(PIN_LED, HIGH); // Fixe en SAFE
+        // Clignotement lent en SAFE pour dire "Je suis vivant mais désarmé"
+        if ((millis() % 1000) < 500) digitalWrite(PIN_LED, HIGH); else digitalWrite(PIN_LED, LOW);
     }
 
     if(drone.current_mode == MODE_CALIBRATION) {
         esc_calibrate_loop(&drone);
     } else {
         unsigned long t_imu_start = micros();
-        imu_update(&drone);      // <-- snapshot non-bloquant
-        alt_imu_update(&drone);  // <-- snapshot alt_imu non-bloquant
+        imu_update(&drone);      
+        alt_imu_update(&drone);  
 
-        // Fusion Yaw (gyro + magnétomètre)
 #if YAW_FUSION_ENABLED
         static uint8_t fusion_counter = 0;
         if (drone.current_mode == MODE_ARMED || drone.current_mode == MODE_FLYING) {
             if (++fusion_counter >= 5) {
                 fusion_counter = 0;
-                const float dt_s = LOOP_TIME_US * 5.0f * 1e-6f;  // 5 cycles = 20ms
+                const float dt_s = LOOP_TIME_US * 5.0f * 1e-6f;
                 yaw_fusion_update(&drone, dt_s);
             }
         } else {
@@ -184,43 +162,38 @@ void loop() {
         (void)t_imu_start;
 
         switch(drone.current_mode) {
-            // ---------------- MODE SAFE ----------------
             case MODE_SAFE:
                 motors_stop();
-                
                 // ARMEMENTS : Gaz Bas + Yaw Gauche
                 if(drone.channel_3 < 1010 && drone.channel_4 < 1200) {
                      if(arming_timer == 0) arming_timer = millis();
                      else if(millis() - arming_timer > 1000) {
                         drone.current_mode = MODE_ARMED;
                         arming_timer = 0;
-                        error_code = 0; // Reset erreurs
+                        error_code = 0;
                         pid_reset_integral();
                         drone.angle_pitch = 0;
                         drone.angle_roll = 0;
-                        imu_request_reset();      // Reset IMU angles
+                        imu_request_reset();      
 #if YAW_FUSION_ENABLED
-                        yaw_fusion_reset(&drone); // Reset fusion yaw
+                        yaw_fusion_reset(&drone); 
 #endif
                         loop_timer = micros();
                      }
                 } else { arming_timer = 0; }
                 break;
 
-            // ---------------- MODE ARMED ----------------
             case MODE_ARMED:
                 motors_stop(); 
-                // Clignotement lent
-                if ((millis() % 500) < 100) digitalWrite(PIN_LED, HIGH); else digitalWrite(PIN_LED, LOW);
+                // Clignotement d'avertissement plus rapide
+                if ((millis() % 200) < 100) digitalWrite(PIN_LED, HIGH); else digitalWrite(PIN_LED, LOW);
 
-                // Décollage (Gaz > 1040)
                 if(drone.channel_3 > 1040) {
                     drone.current_mode = MODE_FLYING;
                     disarm_debounce_timer = 0;
                     angle_security_timer = 0;
                 }
                 
-                // Désarmement (Gaz Bas + Yaw Droite)
                 if(drone.channel_3 < 1010 && drone.channel_4 > 1800) {
                      if(arming_timer == 0) arming_timer = millis();
                      else if(millis() - arming_timer > 1000) {
@@ -230,17 +203,14 @@ void loop() {
                 } else { arming_timer = 0; }
                 break;
 
-            // ---------------- MODE FLYING ----------------
             case MODE_FLYING:
-                digitalWrite(PIN_LED, LOW); 
+                digitalWrite(PIN_LED, LOW); // Eteint en vol pour économiser/ne pas éblouir
 
-                // --- INTELLIGENCE DE VOL ---
                 pid_compute_setpoints(&drone);
                 pid_compute(&drone);
                 motors_mix(&drone);
                 motors_write();
                 
-                // --- DESARMEMENT MANUEL D'URGENCE ---
                 if(drone.channel_3 < 1010 && drone.channel_4 > 1800) {
                      if(arming_timer == 0) arming_timer = millis();
                      else if(millis() - arming_timer > 1000) {
@@ -252,13 +222,11 @@ void loop() {
                     arming_timer = 0; 
                 }
 
-                // --- SECURITE RADIO / AUTOLANDING ---
                 if (drone.channel_3 < 1010) {
                     if (disarm_debounce_timer == 0) disarm_debounce_timer = millis();
-                    
                     if (millis() - disarm_debounce_timer > 60000) { 
                         drone.current_mode = MODE_ARMED; 
-                        error_code = 2; // PERTE RADIO
+                        error_code = 2; 
                         disarm_debounce_timer = 0;
                     }
                 } else {
@@ -271,7 +239,6 @@ void loop() {
                     drone.web_test_vals[1], drone.web_test_vals[2], 
                     drone.web_test_vals[3], drone.web_test_vals[4]
                 );
-                // Sortie du mode test si on touche aux gaz
                 if(drone.channel_3 > 1100) {
                     drone.current_mode = MODE_SAFE;
                     motors_stop();
@@ -279,7 +246,7 @@ void loop() {
                 break;
         }
 
-        // --- DIAGNOSTIC LAG (BOÎTE NOIRE) ---
+        // --- DIAGNOSTIC LAG ---
         unsigned long t_end = micros();
         unsigned long dur_radio = t_radio - t_start;
         unsigned long dur_imu = t_imu - t_radio;
@@ -295,12 +262,13 @@ void loop() {
         }
     }
 
-    // --- OPTIMISATION MULTITÂCHE ---
+    // --- YIELD WIFI / FREERTOS ---
     unsigned long time_now = micros();
     if (loop_timer + LOOP_TIME_US > time_now) {
         unsigned long remaining = (loop_timer + LOOP_TIME_US) - time_now;
-        if (remaining > 1500) {
-             vTaskDelay(1); // Yield WiFi
+        // On rend la main plus généreusement pour le WiFi et le Flow
+        if (remaining > 1000) {
+             vTaskDelay(1); 
         }
         while(micros() - loop_timer < LOOP_TIME_US);
     }

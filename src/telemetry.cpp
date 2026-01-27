@@ -1700,7 +1700,7 @@ void telemetryTask(void * parameter) {
     });
 
     server.on("/get_pid", HTTP_GET, [](AsyncWebServerRequest *request){
-        static char json_buffer[320];
+        static char json_buffer[512];
         snprintf(json_buffer, sizeof(json_buffer),
             "{\"ppr\":%.4f,\"ipr\":%.5f,\"dpr\":%.4f,"
             "\"py\":%.4f,\"iy\":%.5f,\"dy\":%.4f,"
