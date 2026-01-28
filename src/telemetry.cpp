@@ -1662,7 +1662,7 @@ void telemetryTask(void * parameter) {
 
     server.on("/data", HTTP_GET, [](AsyncWebServerRequest *request){
         // Buffer statique pour éviter les allocations dynamiques String (cause de lag)
-        static char json_buffer[600];
+        static char json_buffer[2048];
 
         snprintf(json_buffer, sizeof(json_buffer),
             "{\"ar\":%.2f,\"ap\":%.2f,\"ay\":%.2f,"

@@ -24,6 +24,11 @@ int error_code = 0;
 
 void setup() {
     Serial.begin(115200);
+    // --- AJOUT DEBUG ---
+    delay(1000); // Petite pause pour laisser le port série s'ouvrir
+    Serial.println("\n\n>>> DEMARRAGE DU CONTROLEUR <<<");
+    Serial.println("1. Initialisation Wire...");
+    // -------------------
     Wire.begin();
     Wire.setClock(I2C_SPEED);
     Wire.setTimeOut(1);
@@ -43,7 +48,7 @@ void setup() {
     
     // --- 1. LANCEMENT TACHE DE FOND FLOW (FreeRTOS) ---
     // La lecture se fera désormais toute seule sur le Coeur 0
-    flow_init(&drone); 
+    
 
     // --- 2. LANCEMENT TACHE DE FOND WIFI ---
     start_telemetry_task(&drone); 
@@ -92,9 +97,11 @@ void setup() {
         imu_start_task();      
         alt_imu_start_task();  
         yaw_fusion_init();
+        
 
         pid_init();
         pid_init_params(&drone);
+        flow_init(&drone); 
     }
 
     drone.max_time_radio = 0;
@@ -274,4 +281,18 @@ void loop() {
     }
     
     loop_timer = micros();
+
+    static unsigned long last_print_time = 0;
+    if (millis() - last_print_time > 200) {
+        last_print_time = millis();
+        
+        // Efface l'écran (optionnel, sinon ça défile)
+        Serial.printf(
+            "R:%5.1f P:%5.1f Y:%5.1f | L:%5.2m | FX:%6.2f FY:%6.2f Q:%3d\n",
+            drone.angle_roll, drone.angle_pitch, drone.angle_yaw,
+            drone.lidar_dist_m,
+            drone.flow_x_rad, drone.flow_y_rad, drone.flow_quality,
+            drone.loop_time
+        );
+    }
 }

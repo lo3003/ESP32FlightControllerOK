@@ -31,6 +31,14 @@ static float yaw_target_angle = 0.0f;   // Cap cible mémorisé
 static bool yaw_heading_lock = false;   // Flag: lock de cap actif
 static float last_valid_yaw = 0.0f;     // Dernier yaw valide mémorisé
 
+// --- ALTITUDE HOLD (PID mémoire) ---
+static float pid_i_mem_alt = 0.0f;
+static float pid_last_alt_error = 0.0f;
+
+// --- POSITION HOLD (Optical Flow) ---
+#define FLOW_GAIN           6.0f    // Gain proportionnel flow → rate setpoint
+#define FLOW_MAX_CORRECTION 15.0f   // Max ±15 deg/s de correction
+
 // Paramètres Heading Hold
 static const float YAW_DEADBAND = 20.0f;        // Deadband stick yaw (±20 autour de 1500)
 static const float YAW_RATE_LIMIT = 200.0f;     // Limite max de la consigne rate générée (deg/s)
@@ -62,6 +70,14 @@ void pid_init_params(DroneState *drone) {
     // HEADING HOLD
     drone->p_heading = 1.1f;
 
+    // ALTITUDE HOLD
+    drone->p_alt = 200.0f;
+    drone->i_alt = 50.0f;
+    drone->d_alt = 0.0f;
+    drone->altitude_target = 0.0f;
+    drone->altitude_lock = false;
+    drone->pid_throttle_adjust = 0.0f;
+
     Serial.println("PID Params Initialized (Flight-Ready Mode + VBat Comp)");
 }
 
@@ -81,6 +97,10 @@ void pid_reset_integral() {
     yaw_target_angle = 0.0f;
     yaw_heading_lock = false;
     last_valid_yaw = 0.0f;
+
+    // Reset Altitude Hold
+    pid_i_mem_alt = 0.0f;
+    pid_last_alt_error = 0.0f;
 }
 
 // --- CALCUL DES CONSIGNES (Setpoints) ---
@@ -106,6 +126,32 @@ void pid_compute_setpoints(DroneState *drone) {
 
     float input_pitch = stick_pitch - (drone->angle_pitch * drone->p_level);
     drone->pid_setpoint_pitch = input_pitch / 3.0f;
+
+    // --- POSITION HOLD (Optical Flow) ---
+    // Actif : sticks roll/pitch centrés ET qualité flow > 50 ET en vol
+    {
+        bool roll_centered  = (drone->channel_1 >= 1480 && drone->channel_1 <= 1520);
+        bool pitch_centered = (drone->channel_2 >= 1480 && drone->channel_2 <= 1520);
+
+        if (roll_centered && pitch_centered &&
+            drone->flow_quality > 50 &&
+            drone->current_mode == MODE_FLYING)
+        {
+            // Drone glisse à droite (+FlowX) → corriger à gauche (-Roll)
+            float flow_corr_roll = -1.0f * drone->flow_x_rad * FLOW_GAIN;
+            // Drone glisse en avant (-FlowY) → corriger en arrière (+Pitch)
+            float flow_corr_pitch = -1.0f * drone->flow_y_rad * FLOW_GAIN;
+
+            // Sécurité : limiter la correction à ±15 deg/s
+            if (flow_corr_roll > FLOW_MAX_CORRECTION)        flow_corr_roll = FLOW_MAX_CORRECTION;
+            else if (flow_corr_roll < -FLOW_MAX_CORRECTION)  flow_corr_roll = -FLOW_MAX_CORRECTION;
+            if (flow_corr_pitch > FLOW_MAX_CORRECTION)       flow_corr_pitch = FLOW_MAX_CORRECTION;
+            else if (flow_corr_pitch < -FLOW_MAX_CORRECTION) flow_corr_pitch = -FLOW_MAX_CORRECTION;
+
+            drone->pid_setpoint_roll  += flow_corr_roll;
+            drone->pid_setpoint_pitch += flow_corr_pitch;
+        }
+    }
 
     // --- YAW ---
 #if HEADING_HOLD_ENABLED
@@ -305,4 +351,47 @@ void pid_compute(DroneState *drone) {
     drone->pid_output_yaw = p_term_yaw + pid_i_mem_yaw + d_term_yaw + ff_term_yaw;
     if (drone->pid_output_yaw > PID_MAX_YAW) drone->pid_output_yaw = PID_MAX_YAW;
     else if (drone->pid_output_yaw < -PID_MAX_YAW) drone->pid_output_yaw = -PID_MAX_YAW;
+
+    // ---------------- ALTITUDE HOLD (Lidar) ----------------
+    // Actif : gaz au centre (1400-1600) ET lidar valide (> 0.02m)
+    {
+        bool throttle_centered = (drone->channel_3 >= 1400 && drone->channel_3 <= 1600);
+        bool lidar_valid       = (drone->lidar_dist_m > 0.02f);
+
+        if (throttle_centered && lidar_valid) {
+            // Mémoriser l'altitude cible à l'activation
+            if (!drone->altitude_lock) {
+                drone->altitude_target = drone->lidar_dist_m;
+                drone->altitude_lock = true;
+                pid_i_mem_alt = 0.0f;
+                pid_last_alt_error = 0.0f;
+            }
+
+            float alt_error = drone->altitude_target - drone->lidar_dist_m;
+
+            // P
+            float p_term_alt = drone->p_alt * alt_error;
+
+            // I (avec anti-windup)
+            pid_i_mem_alt += drone->i_alt * alt_error;
+            if (pid_i_mem_alt > 200.0f) pid_i_mem_alt = 200.0f;
+            else if (pid_i_mem_alt < -200.0f) pid_i_mem_alt = -200.0f;
+
+            // D
+            float d_term_alt = drone->d_alt * (alt_error - pid_last_alt_error);
+            pid_last_alt_error = alt_error;
+
+            // Sortie bornée
+            drone->pid_throttle_adjust = p_term_alt + pid_i_mem_alt + d_term_alt;
+            if (drone->pid_throttle_adjust > 200.0f) drone->pid_throttle_adjust = 200.0f;
+            else if (drone->pid_throttle_adjust < -200.0f) drone->pid_throttle_adjust = -200.0f;
+
+        } else {
+            // Pilote hors zone centre ou lidar invalide → désactiver
+            drone->altitude_lock = false;
+            drone->pid_throttle_adjust = 0.0f;
+            pid_i_mem_alt = 0.0f;
+            pid_last_alt_error = 0.0f;
+        }
+    }
 }

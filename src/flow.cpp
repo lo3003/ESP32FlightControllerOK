@@ -4,22 +4,21 @@
 #include "types.h"
 
 // --- CONFIGURATION ---
-static HardwareSerial FlowSerial(2);
+static HardwareSerial FlowSerial(1);
 
 // --- CONSTANTES MSP ---
 #define MSP_HEADER_START 0x24 
 #define MSP2_SENSOR_RANGEFINDER 0x1F01 
 #define MSP2_SENSOR_OPTIC_FLOW  0x1F02 
 
-// Variables globales internes (utilisées par la tâche)
+// Variables globales internes
 static uint8_t msp_state = 0;
 static uint8_t msp_crc = 0;
 static uint16_t msp_idx = 0;
 static uint16_t msp_payload_size = 0;
 static uint16_t msp_cmd_id = 0;
-static uint8_t msp_buffer[128];
+static uint8_t msp_buffer[128]; // Buffer de décodage suffisant
 
-// Handle de la tâche FreeRTOS
 TaskHandle_t FlowTaskHandle = NULL;
 
 // --- CRC8 ---
@@ -32,15 +31,18 @@ uint8_t crc8_dvb_s2(uint8_t crc, uint8_t a) {
     return crc;
 }
 
-// --- TRAITEMENT DU PAQUET (Fonction interne) ---
+// --- TRAITEMENT DU PAQUET (AVEC LISSAGE + SNAP TO ZERO) ---
 void process_packet_v2(DroneState* drone) {
     // LIDAR
     if (msp_cmd_id == MSP2_SENSOR_RANGEFINDER) {
         int32_t dist_mm = msp_buffer[1] | (msp_buffer[2] << 8) | (msp_buffer[3] << 16) | (msp_buffer[4] << 24);
-        if (dist_mm > 0 && dist_mm < 5000) {
-            drone->lidar_dist_m = dist_mm / 1000.0f;
+        
+        if (dist_mm >= 0 && dist_mm < 5000) { 
+            float new_dist = dist_mm / 1000.0f;
+            if (drone->lidar_dist_m < 0) drone->lidar_dist_m = new_dist; 
+            else drone->lidar_dist_m = (drone->lidar_dist_m * 0.70f) + (new_dist * 0.30f);
         } else {
-            drone->lidar_dist_m = -1.0f;
+            drone->lidar_dist_m = -1.0f; 
         }
     }
     // OPTICAL FLOW
@@ -49,32 +51,46 @@ void process_packet_v2(DroneState* drone) {
         int32_t motion_x = msp_buffer[1] | (msp_buffer[2] << 8) | (msp_buffer[3] << 16) | (msp_buffer[4] << 24);
         int32_t motion_y = msp_buffer[5] | (msp_buffer[6] << 8) | (msp_buffer[7] << 16) | (msp_buffer[8] << 24);
 
-        drone->flow_x_rad = motion_x / 10.0f; 
-        drone->flow_y_rad = motion_y / 10.0f;
+        // Conversion brute
+        float raw_x = motion_x / 10.0f; 
+        float raw_y = motion_y / 10.0f;
+
+        // 1. FILTRE PASSE-BAS (Douceur)
+        drone->flow_x_rad = (drone->flow_x_rad * 0.60f) + (raw_x * 0.40f);
+        drone->flow_y_rad = (drone->flow_y_rad * 0.60f) + (raw_y * 0.40f);
+
+        // 2. SNAP TO ZERO (Propreté)
+        // Si le mouvement est négligeable (bruit de fond ou résidu de filtre), on force 0.
+        // 0.05 rad/s est un seuil très bas, invisible en vol mais parfait pour le stationnaire.
+        if (fabsf(drone->flow_x_rad) < 0.05f) drone->flow_x_rad = 0.0f;
+        if (fabsf(drone->flow_y_rad) < 0.05f) drone->flow_y_rad = 0.0f;
+        
         drone->flow_quality = quality;
         drone->flow_valid = true;
     }
 }
 
-// --- LA TÂCHE FREERTOS (Tourne sur le Coeur 0) ---
+// --- TÂCHE ---
 void FlowTaskCode(void * parameter) {
     DroneState* drone = (DroneState*)parameter;
 
-    for(;;) { // Boucle infinie de la tâche
+    for(;;) { 
+        // Timeout de sécurité : 2ms max de traitement continu
+        unsigned long t_start = micros();
         
-        // Lecture de TOUT ce qui est disponible dans le buffer série
-        while (FlowSerial.available()) {
+        while (FlowSerial.available() && (micros() - t_start < 2000)) {
             uint8_t c = FlowSerial.read();
-
+            
+            // Machine à états MSP V2
             switch (msp_state) {
-                case 0: // IDLE
+                case 0: 
                     if (c == MSP_HEADER_START) msp_state = 1; 
+                    else if (c == '$') msp_state = 1; 
                     break;
-                case 1: // VERSION
-                    if (c == 'X') msp_state = 10; // V2
+                case 1: 
+                    if (c == 'X') msp_state = 10; 
                     else msp_state = 0; 
                     break;
-                // V2 PARSER
                 case 10: msp_crc = 0; msp_idx = 0; msp_state = 11; break;
                 case 11: 
                     msp_buffer[msp_idx++] = c; msp_crc = crc8_dvb_s2(msp_crc, c);
@@ -82,7 +98,7 @@ void FlowTaskCode(void * parameter) {
                         msp_cmd_id = msp_buffer[1] | (msp_buffer[2] << 8);
                         msp_payload_size = msp_buffer[3] | (msp_buffer[4] << 8);
                         msp_idx = 0;
-                        if (msp_payload_size > 100) msp_state = 0; 
+                        if (msp_payload_size > 100) msp_state = 0; // Protection overflow
                         else msp_state = (msp_payload_size > 0) ? 12 : 13;
                     }
                     break;
@@ -97,34 +113,33 @@ void FlowTaskCode(void * parameter) {
                 default: msp_state = 0; break;
             }
         }
-
-        // IMPORTANT : Laisser respirer le CPU
-        // On attend 10ms (soit 100Hz de rafraichissement), ce qui est suffisant pour ce capteur
-        vTaskDelay(10 / portTICK_PERIOD_MS);
+        
+        // Pause cruciale pour laisser le WiFi travailler sur le Core 0
+        vTaskDelay(5 / portTICK_PERIOD_MS); 
     }
 }
 
-// --- INITIALISATION ---
+// --- INIT ---
 void flow_init(DroneState* drone) {
+    // 1. Buffer raisonnable (1024 suffisent LARGEMENT pour 115200 bauds)
+    // 8192 était trop gros et causait probablement une fragmentation mémoire (Freeze)
+    FlowSerial.setRxBufferSize(1024); 
+    
     FlowSerial.begin(FLOW_BAUD, SERIAL_8N1, PIN_FLOW_RX, PIN_FLOW_TX);
     
-    // Création de la tâche sur le COEUR 0 (Core 0)
-    // Le vol tourne sur le Core 1, donc aucun ralentissement !
+    // 2. Augmentation de la Stack de la tâche (2048 -> 4096)
+    // Pour éviter tout "Stack Overflow" qui planterait l'ESP
     xTaskCreatePinnedToCore(
-        FlowTaskCode,   // Fonction de la tâche
-        "FlowTask",     // Nom
-        2048,           // Stack size (2ko suffisent)
-        drone,          // Paramètre passé (le pointeur drone)
-        1,              // Priorité (Basse, le vol est prioritaire)
-        &FlowTaskHandle,// Handle
-        0               // COEUR 0 (Important !)
+        FlowTaskCode,   
+        "FlowTask",     
+        4096,            // Stack doublée pour sécurité
+        drone,          
+        1,               // Priorité basse (laisser WiFi prioritaire)
+        &FlowTaskHandle,
+        0                // Core 0
     );
     
-    Serial.println("FLOW: Tache FreeRTOS demarree sur Core 0");
+    Serial.println("FLOW: Init OK (Buffer 1024 / Stack 4096)");
 }
 
-// Cette fonction ne sert plus à rien car la tâche tourne toute seule
-// On la garde vide pour compatibilité si elle est encore appelée quelque part
-void flow_update(DroneState* drone) {
-    // Vide
-}
+void flow_update(DroneState* drone) {}

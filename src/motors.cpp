@@ -40,6 +40,9 @@ void motors_mix(DroneState *drone) {
 
     int throttle = map(raw_throttle, 1000, 2000, MIN_THROTTLE_IDLE, MAX_THROTTLE_FLIGHT);
 
+    // Correction Altitude Hold (ajoutée par le PID lidar)
+    throttle += (int)drone->pid_throttle_adjust;
+
     // Mixage PID selon configuration:
     // M1 (IO27) = Avant-Droit CCW  : PITCH(-) ROLL(+) YAW(-)
     // M2 (IO13) = Arrière-Droit CW : PITCH(+) ROLL(+) YAW(+)

@@ -101,6 +101,11 @@ typedef struct {
     float lidar_dist_m;     // Distance sol en mètres
     bool flow_valid;        // Si le capteur est vivant
 
+    // --- Altitude Hold (Lidar) ---
+    float altitude_target;      // Consigne mémorisée en m
+    bool altitude_lock;         // État actif/inactif
+    float pid_throttle_adjust;  // Correction calculée à ajouter aux gaz
+    float p_alt, i_alt, d_alt;  // Gains PID Altitude
 
 } DroneState;
 
