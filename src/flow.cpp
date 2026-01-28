@@ -4,6 +4,7 @@
 #include "types.h"
 
 // --- CONFIGURATION ---
+// UART1 pour éviter le conflit avec la Radio (UART2)
 static HardwareSerial FlowSerial(1);
 
 // --- CONSTANTES MSP ---
@@ -17,7 +18,7 @@ static uint8_t msp_crc = 0;
 static uint16_t msp_idx = 0;
 static uint16_t msp_payload_size = 0;
 static uint16_t msp_cmd_id = 0;
-static uint8_t msp_buffer[128]; // Buffer de décodage suffisant
+static uint8_t msp_buffer[128]; 
 
 TaskHandle_t FlowTaskHandle = NULL;
 
@@ -31,8 +32,15 @@ uint8_t crc8_dvb_s2(uint8_t crc, uint8_t a) {
     return crc;
 }
 
-// --- TRAITEMENT DU PAQUET (AVEC LISSAGE + SNAP TO ZERO) ---
+// --- VARIABLES STATIQUES POUR LE CALCUL DE VITESSE ---
+static unsigned long prev_flow_time = 0;
+// Échelle optique pour Matek 3901-L0X (FOV 42°)
+#define OPTICAL_FLOW_SCALER 700.0f 
+
+// --- TRAITEMENT DU PAQUET (CORRECT & PHYSIQUE) ---
 void process_packet_v2(DroneState* drone) {
+    unsigned long now = micros();
+
     // LIDAR
     if (msp_cmd_id == MSP2_SENSOR_RANGEFINDER) {
         int32_t dist_mm = msp_buffer[1] | (msp_buffer[2] << 8) | (msp_buffer[3] << 16) | (msp_buffer[4] << 24);
@@ -47,21 +55,26 @@ void process_packet_v2(DroneState* drone) {
     }
     // OPTICAL FLOW
     else if (msp_cmd_id == MSP2_SENSOR_OPTIC_FLOW) {
+        // 1. Calcul du dt (Temps écoulé)
+        if (prev_flow_time == 0) { prev_flow_time = now; return; }
+        float dt = (now - prev_flow_time) / 1000000.0f;
+        prev_flow_time = now;
+        
+        if (dt < 0.001f) return; // Sécurité division par zéro
+
         uint8_t quality = msp_buffer[0];
-        int32_t motion_x = msp_buffer[1] | (msp_buffer[2] << 8) | (msp_buffer[3] << 16) | (msp_buffer[4] << 24);
-        int32_t motion_y = msp_buffer[5] | (msp_buffer[6] << 8) | (msp_buffer[7] << 16) | (msp_buffer[8] << 24);
+        int32_t raw_counts_x = msp_buffer[1] | (msp_buffer[2] << 8) | (msp_buffer[3] << 16) | (msp_buffer[4] << 24);
+        int32_t raw_counts_y = msp_buffer[5] | (msp_buffer[6] << 8) | (msp_buffer[7] << 16) | (msp_buffer[8] << 24);
 
-        // Conversion brute
-        float raw_x = motion_x / 10.0f; 
-        float raw_y = motion_y / 10.0f;
+        // 2. Vraie vitesse en Rad/s
+        float velocity_x = (float)raw_counts_x / (OPTICAL_FLOW_SCALER * dt);
+        float velocity_y = (float)raw_counts_y / (OPTICAL_FLOW_SCALER * dt);
 
-        // 1. FILTRE PASSE-BAS (Douceur)
-        drone->flow_x_rad = (drone->flow_x_rad * 0.60f) + (raw_x * 0.40f);
-        drone->flow_y_rad = (drone->flow_y_rad * 0.60f) + (raw_y * 0.40f);
+        // 3. Filtrage (LPF)
+        drone->flow_x_rad = (drone->flow_x_rad * 0.60f) + (velocity_x * 0.40f);
+        drone->flow_y_rad = (drone->flow_y_rad * 0.60f) + (velocity_y * 0.40f);
 
-        // 2. SNAP TO ZERO (Propreté)
-        // Si le mouvement est négligeable (bruit de fond ou résidu de filtre), on force 0.
-        // 0.05 rad/s est un seuil très bas, invisible en vol mais parfait pour le stationnaire.
+        // 4. Snap To Zero
         if (fabsf(drone->flow_x_rad) < 0.05f) drone->flow_x_rad = 0.0f;
         if (fabsf(drone->flow_y_rad) < 0.05f) drone->flow_y_rad = 0.0f;
         
@@ -70,7 +83,7 @@ void process_packet_v2(DroneState* drone) {
     }
 }
 
-// --- TÂCHE ---
+// --- TÂCHE DE FOND (PARSER ROBUSTE) ---
 void FlowTaskCode(void * parameter) {
     DroneState* drone = (DroneState*)parameter;
 
@@ -81,7 +94,7 @@ void FlowTaskCode(void * parameter) {
         while (FlowSerial.available() && (micros() - t_start < 2000)) {
             uint8_t c = FlowSerial.read();
             
-            // Machine à états MSP V2
+            // Machine à états MSP V2 (Celle qui MARCHAIT bien)
             switch (msp_state) {
                 case 0: 
                     if (c == MSP_HEADER_START) msp_state = 1; 
@@ -98,7 +111,7 @@ void FlowTaskCode(void * parameter) {
                         msp_cmd_id = msp_buffer[1] | (msp_buffer[2] << 8);
                         msp_payload_size = msp_buffer[3] | (msp_buffer[4] << 8);
                         msp_idx = 0;
-                        if (msp_payload_size > 100) msp_state = 0; // Protection overflow
+                        if (msp_payload_size > 100) msp_state = 0; 
                         else msp_state = (msp_payload_size > 0) ? 12 : 13;
                     }
                     break;
@@ -112,34 +125,32 @@ void FlowTaskCode(void * parameter) {
                     break;
                 default: msp_state = 0; break;
             }
-        }
+        } 
         
-        // Pause cruciale pour laisser le WiFi travailler sur le Core 0
+        
         vTaskDelay(5 / portTICK_PERIOD_MS); 
     }
 }
 
 // --- INIT ---
 void flow_init(DroneState* drone) {
-    // 1. Buffer raisonnable (1024 suffisent LARGEMENT pour 115200 bauds)
-    // 8192 était trop gros et causait probablement une fragmentation mémoire (Freeze)
     FlowSerial.setRxBufferSize(1024); 
     
+    // UART 1 (Pins définies dans config.h)
     FlowSerial.begin(FLOW_BAUD, SERIAL_8N1, PIN_FLOW_RX, PIN_FLOW_TX);
     
-    // 2. Augmentation de la Stack de la tâche (2048 -> 4096)
-    // Pour éviter tout "Stack Overflow" qui planterait l'ESP
+    // Stack 4096 pour éviter le crash
     xTaskCreatePinnedToCore(
         FlowTaskCode,   
         "FlowTask",     
-        4096,            // Stack doublée pour sécurité
+        4096,          
         drone,          
-        1,               // Priorité basse (laisser WiFi prioritaire)
+        1,              
         &FlowTaskHandle,
-        0                // Core 0
+        0                
     );
     
-    Serial.println("FLOW: Init OK (Buffer 1024 / Stack 4096)");
+    Serial.println("FLOW: Init OK (Physique Corrigee)");
 }
 
 void flow_update(DroneState* drone) {}
