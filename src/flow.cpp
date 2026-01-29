@@ -91,7 +91,7 @@ void FlowTaskCode(void * parameter) {
         // Timeout de sécurité : 2ms max de traitement continu
         unsigned long t_start = micros();
         
-        while (FlowSerial.available() && (micros() - t_start < 2000)) {
+        while (FlowSerial.available() && (micros() - t_start < 1000)) {
             uint8_t c = FlowSerial.read();
             
             // Machine à états MSP V2 (Celle qui MARCHAIT bien)
@@ -128,7 +128,7 @@ void FlowTaskCode(void * parameter) {
         } 
         
         
-        vTaskDelay(5 / portTICK_PERIOD_MS); 
+        vTaskDelay(20 / portTICK_PERIOD_MS); 
     }
 }
 

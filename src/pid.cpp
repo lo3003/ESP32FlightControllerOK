@@ -36,8 +36,8 @@ static float pid_i_mem_alt = 0.0f;
 static float pid_last_alt_error = 0.0f;
 
 // --- POSITION HOLD (Optical Flow) ---
-#define FLOW_GAIN           6.0f    // Gain proportionnel flow → rate setpoint
-#define FLOW_MAX_CORRECTION 15.0f   // Max ±15 deg/s de correction
+#define FLOW_GAIN           20.0f    // Gain proportionnel flow → rate setpoint
+#define FLOW_MAX_CORRECTION 10.0f   // Max ±15 deg/s de correction
 
 // Paramètres Heading Hold
 static const float YAW_DEADBAND = 20.0f;        // Deadband stick yaw (±20 autour de 1500)
@@ -352,9 +352,10 @@ void pid_compute(DroneState *drone) {
     if (drone->pid_output_yaw > PID_MAX_YAW) drone->pid_output_yaw = PID_MAX_YAW;
     else if (drone->pid_output_yaw < -PID_MAX_YAW) drone->pid_output_yaw = -PID_MAX_YAW;
 
-    // ---------------- ALTITUDE HOLD (Lidar) ----------------
-    // Actif : gaz au centre (1400-1600) ET lidar valide (> 0.02m)
-    {
+            // ---------------- ALTITUDE HOLD (Lidar) ----------------
+            // Actif : gaz au centre (1400-1600) ET lidar valide (> 0.02m)
+    #if 0 
+            {
         bool throttle_centered = (drone->channel_3 >= 1400 && drone->channel_3 <= 1600);
         bool lidar_valid       = (drone->lidar_dist_m > 0.02f);
 
@@ -393,5 +394,6 @@ void pid_compute(DroneState *drone) {
             pid_i_mem_alt = 0.0f;
             pid_last_alt_error = 0.0f;
         }
-    }
+        }
+#endif 
 }

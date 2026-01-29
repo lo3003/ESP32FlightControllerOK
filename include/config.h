@@ -28,14 +28,14 @@
 #define RC_INVERT_YAW  0
 
 // --- PARAMETRES DE VOL (PID) ---
-#define PID_P_ROLL     2
-#define PID_I_ROLL     0.01
-#define PID_D_ROLL     4
+#define PID_P_ROLL     1.11
+#define PID_I_ROLL     0.011
+#define PID_D_ROLL     3
 #define PID_MAX_ROLL   400
 
-#define PID_P_PITCH    2
-#define PID_I_PITCH    0.01
-#define PID_D_PITCH    4
+#define PID_P_PITCH    1.11
+#define PID_I_PITCH    0.011
+#define PID_D_PITCH    3
 #define PID_MAX_PITCH  400
 
 #define PID_P_YAW      2
@@ -44,7 +44,7 @@
 #define PID_MAX_YAW    400
 
 // --- REGLAGES MOTEURS ---
-#define MAX_THROTTLE_FLIGHT 1700
+#define MAX_THROTTLE_FLIGHT 2000
 #define MIN_THROTTLE_IDLE   1050
 #define MOTOR_OFF           1000
 

@@ -254,8 +254,8 @@ static void imu_read_internal(DroneState *drone) {
     }
 
     // Trim mécanique (ajuster selon calibration physique du drone)
-    angle_roll_acc  += 0.8f;
-    angle_pitch_acc += -3.7f;
+    angle_roll_acc  += 2.4f;
+    angle_pitch_acc += -3.8f;
 
     // --- FILTRE DE KALMAN ---
     if (!kalman_initialized) {
