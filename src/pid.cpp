@@ -130,8 +130,8 @@ void pid_compute_setpoints(DroneState *drone) {
     // --- POSITION HOLD (Optical Flow) ---
     // Actif : sticks roll/pitch centrés ET qualité flow > 50 ET en vol
     {
-        bool roll_centered  = (drone->channel_1 >= 1480 && drone->channel_1 <= 1520);
-        bool pitch_centered = (drone->channel_2 >= 1480 && drone->channel_2 <= 1520);
+        bool roll_centered  = (drone->channel_1 >= 1450 && drone->channel_1 <= 1550);
+        bool pitch_centered = (drone->channel_2 >= 1450 && drone->channel_2 <= 1550);
 
         if (roll_centered && pitch_centered &&
             drone->flow_quality > 50 &&
@@ -237,7 +237,7 @@ void pid_compute(DroneState *drone) {
     float d_err_raw, d_err_filtered;
 
     // 1) DETECTION "IN FLIGHT"
-    if (drone->channel_3 > 1020) {
+    if (drone->channel_3 > 1300) {
         pid_inflight_timer = millis();
     }
     bool in_flight = (millis() - pid_inflight_timer < 500);

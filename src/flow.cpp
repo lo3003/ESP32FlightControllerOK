@@ -75,8 +75,8 @@ void process_packet_v2(DroneState* drone) {
         drone->flow_y_rad = (drone->flow_y_rad * 0.60f) + (velocity_y * 0.40f);
 
         // 4. Snap To Zero
-        if (fabsf(drone->flow_x_rad) < 0.05f) drone->flow_x_rad = 0.0f;
-        if (fabsf(drone->flow_y_rad) < 0.05f) drone->flow_y_rad = 0.0f;
+        if (fabsf(drone->flow_x_rad) < 0.01f) drone->flow_x_rad = 0.0f;
+        if (fabsf(drone->flow_y_rad) < 0.01f) drone->flow_y_rad = 0.0f;
         
         drone->flow_quality = quality;
         drone->flow_valid = true;
