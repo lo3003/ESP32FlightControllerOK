@@ -660,6 +660,16 @@ const char index_html[] PROGMEM = R"rawliteral(
           <div class="pid-row"><label>Niveau P</label><input type="number" step="1.0" id="pl"></div>
           <div class="pid-row"><label>Heading P</label><input type="number" step="0.1" id="ph"></div>
         </div>
+        <div class="pid-section">
+          <div class="pid-title">Optical Flow</div>
+          <div class="pid-row"><label>Gain</label><input type="number" step="0.1" id="fg"></div>
+          <div class="pid-row"><label>Max Corr</label><input type="number" step="0.1" id="fmc"></div>
+        </div>
+        <div class="pid-section">
+          <div class="pid-title">Trim Mécanique</div>
+          <div class="pid-row"><label>Roll</label><input type="number" step="0.1" id="tr"></div>
+          <div class="pid-row"><label>Pitch</label><input type="number" step="0.1" id="tp"></div>
+        </div>
         <button class="btn btn-primary" id="pidBtn" onclick="sendPID()">Appliquer PID</button>
       </div>
 
@@ -928,7 +938,10 @@ function loadPID() {
     document.getElementById('ph').value = data.ph;
     document.getElementById('ffpr').value = data.ffpr;
     document.getElementById('ffy').value = data.ffy;
-
+    document.getElementById('fg').value = data.fg;
+    document.getElementById('fmc').value = data.fmc;
+    document.getElementById('tr').value = data.tr;
+    document.getElementById('tp').value = data.tp;
   });
 }
 
@@ -939,7 +952,7 @@ function sendPID() {
   btn.disabled = true;
   btn.textContent = 'Mise à jour...';
   
-  let params = ['ppr','ipr','dpr','py','iy','dy','pl','ph','ffpr','ffy'].map(id => `${id}=${document.getElementById(id).value}`).join('&');
+  let params = ['ppr','ipr','dpr','py','iy','dy','pl','ph','ffpr','ffy','fg','fmc','tr','tp'].map(id => `${id}=${document.getElementById(id).value}`).join('&');
   
   fetch(`/set_pid?${params}`)
     .then(res => {
@@ -1704,10 +1717,13 @@ void telemetryTask(void * parameter) {
         snprintf(json_buffer, sizeof(json_buffer),
             "{\"ppr\":%.4f,\"ipr\":%.5f,\"dpr\":%.4f,"
             "\"py\":%.4f,\"iy\":%.5f,\"dy\":%.4f,"
-            "\"ffpr\":%.4f,\"ffy\":%.4f,\"pl\":%.4f,\"ph\":%.4f}",
+            "\"ffpr\":%.4f,\"ffy\":%.4f,\"pl\":%.4f,\"ph\":%.4f,"
+            "\"fg\":%.4f,\"fmc\":%.4f,\"tr\":%.4f,\"tp\":%.4f}",
             drone_data->p_pitch_roll, drone_data->i_pitch_roll, drone_data->d_pitch_roll,
             drone_data->p_yaw, drone_data->i_yaw, drone_data->d_yaw,
-            drone_data->ff_pitch_roll, drone_data->ff_yaw, drone_data->p_level, drone_data->p_heading
+            drone_data->ff_pitch_roll, drone_data->ff_yaw, drone_data->p_level, drone_data->p_heading,
+            drone_data->flow_gain, drone_data->flow_max_correction,
+            drone_data->trim_roll, drone_data->trim_pitch
         );
         request->send(200, "application/json", json_buffer);
     });
@@ -1723,6 +1739,10 @@ void telemetryTask(void * parameter) {
         if(request->hasParam("ph")) drone_data->p_heading = request->getParam("ph")->value().toFloat();
         if(request->hasParam("ffpr")) drone_data->ff_pitch_roll = request->getParam("ffpr")->value().toFloat();
         if(request->hasParam("ffy")) drone_data->ff_yaw = request->getParam("ffy")->value().toFloat();
+        if(request->hasParam("fg")) drone_data->flow_gain = request->getParam("fg")->value().toFloat();
+        if(request->hasParam("fmc")) drone_data->flow_max_correction = request->getParam("fmc")->value().toFloat();
+        if(request->hasParam("tr")) drone_data->trim_roll = request->getParam("tr")->value().toFloat();
+        if(request->hasParam("tp")) drone_data->trim_pitch = request->getParam("tp")->value().toFloat();
 
         request->send(200, "text/plain", "OK");
     });

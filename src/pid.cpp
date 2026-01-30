@@ -36,8 +36,7 @@ static float pid_i_mem_alt = 0.0f;
 static float pid_last_alt_error = 0.0f;
 
 // --- POSITION HOLD (Optical Flow) ---
-#define FLOW_GAIN           20.0f    // Gain proportionnel flow → rate setpoint
-#define FLOW_MAX_CORRECTION 10.0f   // Max ±15 deg/s de correction
+// flow_gain et flow_max_correction sont maintenant dans DroneState (modifiables via web)
 
 // Paramètres Heading Hold
 static const float YAW_DEADBAND = 20.0f;        // Deadband stick yaw (±20 autour de 1500)
@@ -70,6 +69,10 @@ void pid_init_params(DroneState *drone) {
     // HEADING HOLD
     drone->p_heading = 1.1f;
 
+    // OPTICAL FLOW
+    drone->flow_gain = 25.0f;
+    drone->flow_max_correction = 20.0f;
+
     // ALTITUDE HOLD
     drone->p_alt = 200.0f;
     drone->i_alt = 50.0f;
@@ -77,6 +80,10 @@ void pid_init_params(DroneState *drone) {
     drone->altitude_target = 0.0f;
     drone->altitude_lock = false;
     drone->pid_throttle_adjust = 0.0f;
+
+    // TRIM MECANIQUE D'ANGLE
+    drone->trim_roll = 2.4f;
+    drone->trim_pitch = -4.5f;
 
     Serial.println("PID Params Initialized (Flight-Ready Mode + VBat Comp)");
 }
@@ -128,25 +135,41 @@ void pid_compute_setpoints(DroneState *drone) {
     drone->pid_setpoint_pitch = input_pitch / 3.0f;
 
     // --- POSITION HOLD (Optical Flow) ---
-    // Actif : sticks roll/pitch centrés ET qualité flow > 50 ET en vol
+    // Actif : sticks centrés, qualité > 50, en vol, et LIDAR valide (> 10cm)
     {
         bool roll_centered  = (drone->channel_1 >= 1450 && drone->channel_1 <= 1550);
         bool pitch_centered = (drone->channel_2 >= 1450 && drone->channel_2 <= 1550);
+        // On vérifie aussi que le LIDAR n'est pas buggé (-1)
+        bool lidar_ok       = (drone->lidar_dist_m > 0.1f); 
 
-        if (roll_centered && pitch_centered &&
+        if (roll_centered && pitch_centered && lidar_ok &&
             drone->flow_quality > 50 &&
             drone->current_mode == MODE_FLYING)
         {
-            // Drone glisse à droite (+FlowX) → corriger à gauche (-Roll)
-            float flow_corr_roll = -1.0f * drone->flow_x_rad * FLOW_GAIN;
-            // Drone glisse en avant (-FlowY) → corriger en arrière (+Pitch)
-            float flow_corr_pitch = -1.0f * drone->flow_y_rad * FLOW_GAIN;
+            // 1. Récupération de la hauteur (Sécurité min 0.1m)
+            float height_eff = drone->lidar_dist_m;
+            
+            // 2. Calcul du gain dynamique (V = omega * h)
+            // Plus on est haut, plus le sol défile lentement pour la même vitesse.
+            // Il faut donc amplifier la correction avec la hauteur.
+            float dynamic_gain = drone->flow_gain * height_eff;
+            
+            // Si le drone est très haut (>2m), on peut clamper le gain pour éviter qu'il ne devienne fou
+            if (dynamic_gain > 80.0f) dynamic_gain = 80.0f;
 
-            // Sécurité : limiter la correction à ±15 deg/s
-            if (flow_corr_roll > FLOW_MAX_CORRECTION)        flow_corr_roll = FLOW_MAX_CORRECTION;
-            else if (flow_corr_roll < -FLOW_MAX_CORRECTION)  flow_corr_roll = -FLOW_MAX_CORRECTION;
-            if (flow_corr_pitch > FLOW_MAX_CORRECTION)       flow_corr_pitch = FLOW_MAX_CORRECTION;
-            else if (flow_corr_pitch < -FLOW_MAX_CORRECTION) flow_corr_pitch = -FLOW_MAX_CORRECTION;
+            // 3. Application de la correction
+            // Drone glisse à droite (+FlowX) → corriger à gauche (-Roll)
+            float flow_corr_roll = -1.0f * drone->flow_x_rad * dynamic_gain;
+            
+            // Drone glisse en avant (-FlowY) → corriger en arrière (+Pitch)
+            float flow_corr_pitch = -1.0f * drone->flow_y_rad * dynamic_gain;
+
+            // 4. Bornage de sécurité (Toujours ±10 ou ±15 deg/s max)
+            if (flow_corr_roll > drone->flow_max_correction)        flow_corr_roll = drone->flow_max_correction;
+            else if (flow_corr_roll < -drone->flow_max_correction)  flow_corr_roll = -drone->flow_max_correction;
+
+            if (flow_corr_pitch > drone->flow_max_correction)       flow_corr_pitch = drone->flow_max_correction;
+            else if (flow_corr_pitch < -drone->flow_max_correction) flow_corr_pitch = -drone->flow_max_correction;
 
             drone->pid_setpoint_roll  += flow_corr_roll;
             drone->pid_setpoint_pitch += flow_corr_pitch;

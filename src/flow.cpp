@@ -4,25 +4,40 @@
 #include "types.h"
 
 // --- CONFIGURATION ---
-// UART1 pour éviter le conflit avec la Radio (UART2)
-static HardwareSerial FlowSerial(1);
+static HardwareSerial FlowSerial(1); // UART1
 
-// --- CONSTANTES MSP ---
-#define MSP_HEADER_START 0x24 
+// --- CONSTANTES MSP V2 ---
+#define MSP_HEADER_START '$'
+#define MSP_V2_FRAME_ID  'X'
+#define MSP_DIRECTION_RX '<' // From Sensor to FC
+
+// IDs Capteurs Matek 3901-L0X
 #define MSP2_SENSOR_RANGEFINDER 0x1F01 
 #define MSP2_SENSOR_OPTIC_FLOW  0x1F02 
 
-// Variables globales internes
-static uint8_t msp_state = 0;
+// --- ETATS DU PARSER MSP (Machine à états ArduPilot simplifiée) ---
+enum mspState_e {
+    MSP_IDLE,
+    MSP_HEADER_START_RECEIVED,
+    MSP_HEADER_X_RECEIVED,
+    MSP_HEADER_V2_NATIVE,
+    MSP_PAYLOAD_V2_NATIVE,
+    MSP_CHECKSUM_V2_NATIVE
+};
+
+// Variables statiques du parser
+static mspState_e msp_state = MSP_IDLE;
 static uint8_t msp_crc = 0;
 static uint16_t msp_idx = 0;
 static uint16_t msp_payload_size = 0;
 static uint16_t msp_cmd_id = 0;
-static uint8_t msp_buffer[128]; 
+static uint8_t msp_buffer[128]; // Buffer de réception
 
+// Handle FreeRTOS
 TaskHandle_t FlowTaskHandle = NULL;
 
-// --- CRC8 ---
+// --- CRC8 (Polynome DVB-S2 0xD5) ---
+// Identique à ArduPilot / Betaflight
 uint8_t crc8_dvb_s2(uint8_t crc, uint8_t a) {
     crc ^= a;
     for (int ii = 0; ii < 8; ++ii) {
@@ -32,49 +47,70 @@ uint8_t crc8_dvb_s2(uint8_t crc, uint8_t a) {
     return crc;
 }
 
-// --- VARIABLES STATIQUES POUR LE CALCUL DE VITESSE ---
+// --- VARIABLES CALCUL FLUX ---
 static unsigned long prev_flow_time = 0;
-// Échelle optique pour Matek 3901-L0X (FOV 42°)
+// Echelle pour Matek 3901-L0X (FOV 42°)
+// Note: ArduPilot utilise parfois 700 ou adapte selon la hauteur. 700 est un bon départ.
 #define OPTICAL_FLOW_SCALER 700.0f 
 
-// --- TRAITEMENT DU PAQUET (CORRECT & PHYSIQUE) ---
-void process_packet_v2(DroneState* drone) {
+// --- TRAITEMENT DES DONNEES VALIDES ---
+void process_msp_packet(DroneState* drone) {
     unsigned long now = micros();
 
-    // LIDAR
+    // === LIDAR (Rangefinder) ===
     if (msp_cmd_id == MSP2_SENSOR_RANGEFINDER) {
-        int32_t dist_mm = msp_buffer[1] | (msp_buffer[2] << 8) | (msp_buffer[3] << 16) | (msp_buffer[4] << 24);
+        // Payload: [Quality(1)][DistL(1)][DistM(1)][DistH(1)][DistHH(1)]
+        // Matek envoie la distance en mm (int32)
+        // Attention : Buffer[0] est la qualité
         
-        if (dist_mm >= 0 && dist_mm < 5000) { 
+        int32_t dist_mm = msp_buffer[1] | (msp_buffer[2] << 8) | (msp_buffer[3] << 16) | (msp_buffer[4] << 24);
+        // uint8_t quality = msp_buffer[0]; // Si besoin
+
+        // Filtrage simple et conversion
+        if (dist_mm >= 0 && dist_mm < 5000) { // Max 5m pour ce capteur
             float new_dist = dist_mm / 1000.0f;
+            
+            // Initialisation si première lecture
             if (drone->lidar_dist_m < 0) drone->lidar_dist_m = new_dist; 
-            else drone->lidar_dist_m = (drone->lidar_dist_m * 0.70f) + (new_dist * 0.30f);
+            else drone->lidar_dist_m = (drone->lidar_dist_m * 0.70f) + (new_dist * 0.30f); // LPF
         } else {
+            // Code erreur ou hors de portée
             drone->lidar_dist_m = -1.0f; 
         }
     }
-    // OPTICAL FLOW
+    
+    // === OPTICAL FLOW ===
     else if (msp_cmd_id == MSP2_SENSOR_OPTIC_FLOW) {
-        // 1. Calcul du dt (Temps écoulé)
-        if (prev_flow_time == 0) { prev_flow_time = now; return; }
+        // Payload: [Quality(1)][MotionX(4)][MotionY(4)]
+        
+        // 1. Gestion du Delta Temps (dt)
+        if (prev_flow_time == 0) { 
+            prev_flow_time = now; 
+            return; 
+        }
+        
         float dt = (now - prev_flow_time) / 1000000.0f;
         prev_flow_time = now;
         
-        if (dt < 0.001f) return; // Sécurité division par zéro
+        // Sécurité: Si on a perdu des paquets et que dt est énorme, on ignore ce sample
+        // pour éviter une injection de vitesse délirante.
+        if (dt < 0.001f || dt > 0.5f) return; 
 
         uint8_t quality = msp_buffer[0];
         int32_t raw_counts_x = msp_buffer[1] | (msp_buffer[2] << 8) | (msp_buffer[3] << 16) | (msp_buffer[4] << 24);
         int32_t raw_counts_y = msp_buffer[5] | (msp_buffer[6] << 8) | (msp_buffer[7] << 16) | (msp_buffer[8] << 24);
 
-        // 2. Vraie vitesse en Rad/s
+        // 2. Conversion en Radian/s (Rate)
+        // Velocity = Counts / (Scaler * dt)
         float velocity_x = (float)raw_counts_x / (OPTICAL_FLOW_SCALER * dt);
         float velocity_y = (float)raw_counts_y / (OPTICAL_FLOW_SCALER * dt);
 
         // 3. Filtrage (LPF)
+        // Le capteur optique est bruité, le filtrage est crucial
         drone->flow_x_rad = (drone->flow_x_rad * 0.60f) + (velocity_x * 0.40f);
         drone->flow_y_rad = (drone->flow_y_rad * 0.60f) + (velocity_y * 0.40f);
 
-        // 4. Snap To Zero
+        // 4. Deadband / Zero Snap
         if (fabsf(drone->flow_x_rad) < 0.01f) drone->flow_x_rad = 0.0f;
         if (fabsf(drone->flow_y_rad) < 0.01f) drone->flow_y_rad = 0.0f;
         
@@ -83,63 +119,103 @@ void process_packet_v2(DroneState* drone) {
     }
 }
 
-// --- TÂCHE DE FOND (PARSER ROBUSTE) ---
+// --- MACHINE A ETATS MSP V2 NATIVE (Inspirée ArduPilot) ---
+void parse_msp_byte(DroneState* drone, uint8_t c) {
+    switch (msp_state) {
+        // Attente du '$'
+        case MSP_IDLE:
+            if (c == MSP_HEADER_START) msp_state = MSP_HEADER_START_RECEIVED;
+            break;
+
+        // Attente du 'X' (MSPv2 Native)
+        case MSP_HEADER_START_RECEIVED:
+            if (c == MSP_V2_FRAME_ID) msp_state = MSP_HEADER_X_RECEIVED;
+            else msp_state = MSP_IDLE;
+            break;
+
+        // Attente du '<' (Direction FC <--- Sensor)
+        // C'est l'étape qui manquait dans votre ancien code !
+        case MSP_HEADER_X_RECEIVED:
+            if (c == MSP_DIRECTION_RX) {
+                msp_idx = 0;
+                msp_crc = 0; // Reset CRC
+                msp_state = MSP_HEADER_V2_NATIVE;
+            } else {
+                msp_state = MSP_IDLE;
+            }
+            break;
+
+        // Lecture Entête V2 (5 octets : Flag + CmdID(2) + Size(2))
+        case MSP_HEADER_V2_NATIVE:
+            msp_buffer[msp_idx++] = c;
+            msp_crc = crc8_dvb_s2(msp_crc, c); // Le header fait partie du CRC
+
+            if (msp_idx == 5) {
+                // Décodage de l'entête
+                // buffer[0] = flag (ignoré ici)
+                msp_cmd_id = msp_buffer[1] | (msp_buffer[2] << 8);
+                msp_payload_size = msp_buffer[3] | (msp_buffer[4] << 8);
+
+                // Sécurité taille buffer
+                if (msp_payload_size > sizeof(msp_buffer)) {
+                    msp_state = MSP_IDLE; // Paquet trop gros
+                } else {
+                    msp_idx = 0;
+                    // Si payload vide, on saute direct au checksum
+                    msp_state = (msp_payload_size > 0) ? MSP_PAYLOAD_V2_NATIVE : MSP_CHECKSUM_V2_NATIVE;
+                }
+            }
+            break;
+
+        // Lecture Payload
+        case MSP_PAYLOAD_V2_NATIVE:
+            msp_buffer[msp_idx++] = c;
+            msp_crc = crc8_dvb_s2(msp_crc, c); // Le payload fait partie du CRC
+            
+            if (msp_idx == msp_payload_size) {
+                msp_state = MSP_CHECKSUM_V2_NATIVE;
+            }
+            break;
+
+        // Vérification CRC
+        case MSP_CHECKSUM_V2_NATIVE:
+            if (msp_crc == c) {
+                process_msp_packet(drone);
+            }
+            msp_state = MSP_IDLE;
+            break;
+            
+        default:
+            msp_state = MSP_IDLE;
+            break;
+    }
+}
+
+// --- TÂCHE FREERTOS ---
 void FlowTaskCode(void * parameter) {
     DroneState* drone = (DroneState*)parameter;
 
     for(;;) { 
-        // Timeout de sécurité : 2ms max de traitement continu
-        unsigned long t_start = micros();
-        
-        while (FlowSerial.available() && (micros() - t_start < 1000)) {
+        // On lit tout ce qui arrive sur le port série
+        // vTaskDelay gère le rythme, pas besoin de timeout complexe ici
+        while (FlowSerial.available()) {
             uint8_t c = FlowSerial.read();
-            
-            // Machine à états MSP V2 (Celle qui MARCHAIT bien)
-            switch (msp_state) {
-                case 0: 
-                    if (c == MSP_HEADER_START) msp_state = 1; 
-                    else if (c == '$') msp_state = 1; 
-                    break;
-                case 1: 
-                    if (c == 'X') msp_state = 10; 
-                    else msp_state = 0; 
-                    break;
-                case 10: msp_crc = 0; msp_idx = 0; msp_state = 11; break;
-                case 11: 
-                    msp_buffer[msp_idx++] = c; msp_crc = crc8_dvb_s2(msp_crc, c);
-                    if (msp_idx == 5) {
-                        msp_cmd_id = msp_buffer[1] | (msp_buffer[2] << 8);
-                        msp_payload_size = msp_buffer[3] | (msp_buffer[4] << 8);
-                        msp_idx = 0;
-                        if (msp_payload_size > 100) msp_state = 0; 
-                        else msp_state = (msp_payload_size > 0) ? 12 : 13;
-                    }
-                    break;
-                case 12: 
-                    msp_buffer[msp_idx++] = c; msp_crc = crc8_dvb_s2(msp_crc, c);
-                    if (msp_idx == msp_payload_size) msp_state = 13; 
-                    break;
-                case 13: 
-                    if (msp_crc == c) process_packet_v2(drone);
-                    msp_state = 0; 
-                    break;
-                default: msp_state = 0; break;
-            }
-        } 
+            parse_msp_byte(drone, c);
+        }
         
-        
-        vTaskDelay(20 / portTICK_PERIOD_MS); 
+        // Pause de 10ms (100Hz max de polling, suffisant pour du Flow à 30-50Hz)
+        vTaskDelay(10 / portTICK_PERIOD_MS); 
     }
 }
 
 // --- INIT ---
 void flow_init(DroneState* drone) {
+    // Initialisation du pointeur LIDAR
+    drone->lidar_dist_m = -1.0f;
+
     FlowSerial.setRxBufferSize(1024); 
-    
-    // UART 1 (Pins définies dans config.h)
     FlowSerial.begin(FLOW_BAUD, SERIAL_8N1, PIN_FLOW_RX, PIN_FLOW_TX);
     
-    // Stack 4096 pour éviter le crash
     xTaskCreatePinnedToCore(
         FlowTaskCode,   
         "FlowTask",     
@@ -147,10 +223,12 @@ void flow_init(DroneState* drone) {
         drone,          
         1,              
         &FlowTaskHandle,
-        0                
+        0 // Core 0 pour ne pas gêner le PID sur Core 1
     );
     
-    Serial.println("FLOW: Init OK (Physique Corrigee)");
+    Serial.println("FLOW: Init OK (MSP V2 Native State Machine)");
 }
 
-void flow_update(DroneState* drone) {}
+void flow_update(DroneState* drone) {
+    // Vide, géré par FreeRTOS
+}

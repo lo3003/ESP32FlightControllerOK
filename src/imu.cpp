@@ -59,6 +59,8 @@ static ImuSnapshot imu_snap = {0};
 static volatile FlightMode imu_in_mode = MODE_SAFE;
 static volatile int imu_in_ch3 = 1000;
 static volatile bool imu_reset_req = false;
+static volatile float imu_in_trim_roll = 0.0f;
+static volatile float imu_in_trim_pitch = 0.0f;
 
 static DroneState imu_state;
 static TaskHandle_t imu_task_handle = nullptr;
@@ -253,9 +255,9 @@ static void imu_read_internal(DroneState *drone) {
         angle_roll_acc = asinf((float)acc_roll_val / drone->acc_total_vector) * RAD_TO_DEG;
     }
 
-    // Trim mécanique (ajuster selon calibration physique du drone)
-    angle_roll_acc  += 2.4f;
-    angle_pitch_acc += -4.5f;
+    // Trim mécanique (modifiable via interface web)
+    angle_roll_acc  += drone->trim_roll;
+    angle_pitch_acc += drone->trim_pitch;
 
     // --- FILTRE DE KALMAN ---
     if (!kalman_initialized) {
@@ -318,6 +320,8 @@ static void imu_task(void *parameter) {
         portENTER_CRITICAL(&imu_mux);
         m = imu_in_mode;
         ch3 = imu_in_ch3;
+        imu_state.trim_roll = imu_in_trim_roll;
+        imu_state.trim_pitch = imu_in_trim_pitch;
         if (imu_reset_req) { imu_reset_req = false; do_reset = true; }
         portEXIT_CRITICAL(&imu_mux);
 
@@ -407,6 +411,8 @@ void imu_update(DroneState *drone) {
     portENTER_CRITICAL(&imu_mux);
     imu_in_mode = drone->current_mode;
     imu_in_ch3  = drone->channel_3;
+    imu_in_trim_roll = drone->trim_roll;
+    imu_in_trim_pitch = drone->trim_pitch;
     s = imu_snap;
     portEXIT_CRITICAL(&imu_mux);
 
