@@ -74,8 +74,11 @@ void setup() {
         // MODE VOL NORMAL
         drone.current_mode = MODE_SAFE;
 
-        // Calibration MPU6050
-        imu_init();            
+        // Calibration MPU6050 (Gyro)
+        imu_init();
+        
+        // Calibration Level (Accéléromètre à plat)
+        imu_calibrate_level();
         
         // Calibration AltIMU
         alt_imu_init();        

@@ -81,9 +81,9 @@ void pid_init_params(DroneState *drone) {
     drone->altitude_lock = false;
     drone->pid_throttle_adjust = 0.0f;
 
-    // TRIM MECANIQUE D'ANGLE
-    drone->trim_roll = 2.4f;
-    drone->trim_pitch = -4.5f;
+    // TRIM MECANIQUE D'ANGLE (ajustable via interface web, en plus de la calibration level)
+    drone->trim_roll = 0.0f;
+    drone->trim_pitch = 0.0f;
 
     Serial.println("PID Params Initialized (Flight-Ready Mode + VBat Comp)");
 }

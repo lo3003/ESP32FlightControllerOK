@@ -62,6 +62,10 @@ static volatile bool imu_reset_req = false;
 static volatile float imu_in_trim_roll = 0.0f;
 static volatile float imu_in_trim_pitch = 0.0f;
 
+// --- Offsets calibration Level (accéléromètre à plat) ---
+static float level_offset_roll = 0.0f;
+static float level_offset_pitch = 0.0f;
+
 static DroneState imu_state;
 static TaskHandle_t imu_task_handle = nullptr;
 
@@ -135,6 +139,85 @@ void imu_init() {
 
     digitalWrite(PIN_LED, LOW);
     Serial.println(F("IMU: Calibration OK (Kalman Filter Enabled)"));
+}
+
+// ==================== CALIBRATION LEVEL (ACCELEROMETRE) ====================
+void imu_calibrate_level() {
+    Serial.println(F(""));
+    Serial.println(F("IMU: Calibration Level (accelerometre) - DRONE A PLAT!"));
+    Serial.println(F("IMU: Calibration Level en cours (2 secondes)..."));
+
+    const int LEVEL_CALIB_SAMPLES = 500;  // ~500 échantillons à 250Hz = 2 secondes
+    double sum_roll_acc = 0.0;
+    double sum_pitch_acc = 0.0;
+    int valid_samples = 0;
+
+    unsigned long calib_start = millis();
+    unsigned long last_led_toggle = 0;
+    bool led_state = false;
+
+    while (valid_samples < LEVEL_CALIB_SAMPLES) {
+        // Clignotement LED lent (200ms) pour différencier de la calibration gyro
+        if (millis() - last_led_toggle >= 200) {
+            led_state = !led_state;
+            digitalWrite(PIN_LED, led_state);
+            last_led_toggle = millis();
+        }
+
+        // Signal ESC heartbeat pour éviter timeout
+        int pwm_heartbeat = 1000 + (millis() % 20);
+        motors_write_direct(pwm_heartbeat, pwm_heartbeat, pwm_heartbeat, pwm_heartbeat);
+
+        // Lire accéléromètre
+        Wire.beginTransmission(MPU_ADDR);
+        Wire.write(0x3B);
+        if (Wire.endTransmission() != 0) { delay(4); continue; }
+
+        uint8_t count = Wire.requestFrom(MPU_ADDR, 6);
+        if (count < 6) { delay(4); continue; }
+
+        int16_t acc_x = (int16_t)(Wire.read() << 8 | Wire.read());
+        int16_t acc_y = (int16_t)(Wire.read() << 8 | Wire.read());
+        int16_t acc_z = (int16_t)(Wire.read() << 8 | Wire.read());
+
+        // Mapping axes (même que dans imu_read_internal)
+        long acc_roll_val = acc_y;
+        long acc_pitch_val = acc_x;
+        long acc_z_val = acc_z;
+
+        // Calcul du vecteur total
+        float acc_total = sqrtf((float)(acc_roll_val * acc_roll_val) +
+                                (float)(acc_pitch_val * acc_pitch_val) +
+                                (float)(acc_z_val * acc_z_val));
+
+        // Calcul angles accéléromètre (sans offsets)
+        float angle_roll_acc = 0.0f;
+        float angle_pitch_acc = 0.0f;
+
+        if (fabsf((float)acc_pitch_val) < acc_total) {
+            angle_pitch_acc = asinf((float)acc_pitch_val / acc_total) * RAD_TO_DEG;
+        }
+        if (fabsf((float)acc_roll_val) < acc_total) {
+            angle_roll_acc = asinf((float)acc_roll_val / acc_total) * RAD_TO_DEG;
+        }
+
+        sum_roll_acc += angle_roll_acc;
+        sum_pitch_acc += angle_pitch_acc;
+        valid_samples++;
+
+        delay(4);  // ~250 Hz
+    }
+
+    // Calculer les offsets (négatif pour compenser)
+    float avg_roll = (float)(sum_roll_acc / valid_samples);
+    float avg_pitch = (float)(sum_pitch_acc / valid_samples);
+
+    level_offset_roll = -avg_roll;
+    level_offset_pitch = -avg_pitch;
+
+    digitalWrite(PIN_LED, LOW);
+    Serial.printf("IMU: Level Calibration OK - Offsets: Roll=%.2f deg, Pitch=%.2f deg\n", 
+                  level_offset_roll, level_offset_pitch);
 }
 
 // ==================== IMU READ INTERNAL ====================
@@ -255,7 +338,11 @@ static void imu_read_internal(DroneState *drone) {
         angle_roll_acc = asinf((float)acc_roll_val / drone->acc_total_vector) * RAD_TO_DEG;
     }
 
-    // Trim mécanique (modifiable via interface web)
+    // Calibration Level (offsets calculés au boot)
+    angle_roll_acc  += level_offset_roll;
+    angle_pitch_acc += level_offset_pitch;
+
+    // Trim mécanique additionnel (modifiable via interface web)
     angle_roll_acc  += drone->trim_roll;
     angle_pitch_acc += drone->trim_pitch;
 

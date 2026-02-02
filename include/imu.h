@@ -16,6 +16,7 @@ extern SemaphoreHandle_t i2c_mutex;
 #define RAD_TO_DEG 57.296
 
 void imu_init();
+void imu_calibrate_level();  // Calibration accéléromètre à plat
 void imu_read(DroneState *drone);
 
 // --- AJOUT: IMU en tâche FreeRTOS (zéro impact loop) ---
