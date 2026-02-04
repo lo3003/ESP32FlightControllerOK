@@ -16,7 +16,7 @@
 
 // --- RADIO (S.BUS) ---
 #define PIN_SBUS_RX    4   
-#define D_FILTER_COEFF 0.18f 
+#define D_FILTER_COEFF 0.45f 
 #define PIN_LED        5
 
 // --- I2C ---
@@ -28,19 +28,19 @@
 #define RC_INVERT_YAW  0
 
 // --- PARAMETRES DE VOL (PID) ---
-#define PID_P_ROLL     1.11
-#define PID_I_ROLL     0.011
-#define PID_D_ROLL     3
+#define PID_P_ROLL     1.35
+#define PID_I_ROLL     0.021
+#define PID_D_ROLL     2
 #define PID_MAX_ROLL   400
 
-#define PID_P_PITCH    1.11
-#define PID_I_PITCH    0.011
-#define PID_D_PITCH    3
+#define PID_P_PITCH    1.35
+#define PID_I_PITCH    0.021
+#define PID_D_PITCH    2
 #define PID_MAX_PITCH  400
 
 #define PID_P_YAW      2
-#define PID_I_YAW      0.0002
-#define PID_D_YAW      0
+#define PID_I_YAW      0.01
+#define PID_D_YAW      1.5
 #define PID_MAX_YAW    400
 
 // --- REGLAGES MOTEURS ---

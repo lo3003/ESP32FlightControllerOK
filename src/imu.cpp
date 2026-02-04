@@ -28,7 +28,7 @@ static int16_t temperature;
 static float gyro_roll_filt = 0.0f;
 static float gyro_pitch_filt = 0.0f;
 static float gyro_yaw_filt = 0.0f;
-#define GYRO_PT1_COEFF 0.5f
+#define GYRO_PT1_COEFF 0.85f
 
 // --- Filtres de Kalman pour Roll et Pitch ---
 static Kalman kalman_roll;

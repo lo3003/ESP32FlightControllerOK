@@ -285,17 +285,17 @@ void loop() {
     
     loop_timer = micros();
 
-    static unsigned long last_print_time = 0;
-    if (millis() - last_print_time > 200) {
+    //static unsigned long last_print_time = 0;
+    /*if (millis() - last_print_time > 200) {
         last_print_time = millis();
         
         // Efface l'écran (optionnel, sinon ça défile)
         Serial.printf(
-            "R:%5.1f P:%5.1f Y:%5.1f | L:%5.2m | FX:%6.2f FY:%6.2f Q:%3d\n",
+            "R:%5.1f P:%5.1f Y:%5.1f | L:%5.2f | FX:%6.2f FY:%6.2f Q:%3d\n",
             drone.angle_roll, drone.angle_pitch, drone.angle_yaw,
             drone.lidar_dist_m,
             drone.flow_x_rad, drone.flow_y_rad, drone.flow_quality,
             drone.loop_time
         );
-    }
+    }*/
 }

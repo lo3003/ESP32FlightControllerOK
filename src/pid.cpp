@@ -64,7 +64,7 @@ void pid_init_params(DroneState *drone) {
     drone->ff_yaw        = 0;
 
     // AUTO LEVEL
-    drone->p_level = 4.0f;
+    drone->p_level = 1.5f;
 
     // HEADING HOLD
     drone->p_heading = 1.1f;
