@@ -78,7 +78,8 @@ void setup() {
         imu_init();
         
         // Calibration Level (Accéléromètre à plat)
-        imu_calibrate_level();
+        //imu_calibrate_level();
+        
         
         // Calibration AltIMU
         alt_imu_init();        
@@ -130,11 +131,8 @@ void loop() {
     }
 
     radio_update(&drone);
-    
-    // --- CORRECTION MAJEURE ---
-    // flow_update(&drone);  <-- SUPPRIMÉ ! 
-    // On ne l'appelle PLUS ici car la tâche FreeRTOS le fait déjà en arrière-plan.
-    // Le laisser créait le conflit et le lag.
+    flow_update(&drone);
+
     
     unsigned long t_radio = micros();
 
