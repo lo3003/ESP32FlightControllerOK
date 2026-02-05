@@ -3,10 +3,26 @@
 
 #include "types.h"
 
-// On passe le pointeur drone à l'init pour la tâche FreeRTOS
-void flow_init(DroneState* drone); 
+/**
+ * @brief Initialise le driver MSP v2 pour Matek 3901-L0X
+ *        Lance une tâche FreeRTOS sur Core 0 pour la lecture UART
+ * @param drone Pointeur vers l'état global du drone
+ */
+void flow_init(DroneState* drone);
 
-// On garde cette fonction mais elle ne fera plus rien de lourd
+/**
+ * @brief Copie les données MSP décodées dans DroneState
+ *        Appelé depuis la boucle principale (non-bloquant)
+ * @param drone Pointeur vers l'état global du drone
+ */
 void flow_update(DroneState* drone);
+
+/**
+ * @brief Calcule la vitesse linéaire estimée par fusion Flow + Gyro + Lidar
+ *        Formule: V = (flow_rad/s - gyro_rad/s) * altitude_m
+ *        Doit être appelé juste avant pid_compute() en MODE_FLYING
+ * @param drone Pointeur vers l'état global du drone
+ */
+void flow_compute_velocity(DroneState* drone);
 
 #endif

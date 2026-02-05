@@ -746,16 +746,30 @@ const char index_html[] PROGMEM = R"rawliteral(
           <span class="stat-value" id="flow_quality">0</span>
         </div>
         <div class="stat-row">
+          <span class="stat-label">Features Valides</span>
+          <span class="stat-value" id="flow_feat_valid">NON</span>
+        </div>
+        <div class="stat-row">
           <span class="stat-label">Distance Sol (m)</span>
           <span class="stat-value" id="lidar_dist">0.000</span>
         </div>
+        <div class="pid-title" style="margin-top: 12px; border-top: 1px solid var(--card-border); padding-top: 8px;">Flow Brut (rad/s)</div>
         <div class="stat-row">
-          <span class="stat-label">Flow X (rad/s)</span>
-          <span class="stat-value" id="flow_x">0.0000</span>
+          <span class="stat-label">Raw X</span>
+          <span class="stat-value" id="flow_raw_x">0.0000</span>
         </div>
         <div class="stat-row">
-          <span class="stat-label">Flow Y (rad/s)</span>
-          <span class="stat-value" id="flow_y">0.0000</span>
+          <span class="stat-label">Raw Y</span>
+          <span class="stat-value" id="flow_raw_y">0.0000</span>
+        </div>
+        <div class="pid-title" style="margin-top: 12px; border-top: 2px solid var(--success); padding-top: 8px;">Vitesse Fusionnee (m/s)</div>
+        <div class="stat-row">
+          <span class="stat-label">Vel X</span>
+          <span class="stat-value" id="flow_x" style="color: var(--success);">0.0000</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Vel Y</span>
+          <span class="stat-value" id="flow_y" style="color: var(--success);">0.0000</span>
         </div>
       </div>
 
@@ -1062,8 +1076,18 @@ setInterval(() => {
     // Optical Flow & LiDAR
     document.getElementById("flow_quality").innerText = data.fq !== undefined ? data.fq : 0;
     document.getElementById("lidar_dist").innerText = data.li !== undefined ? data.li.toFixed(3) : "0.000";
+    // Vitesses fusionnees (m/s)
     document.getElementById("flow_x").innerText = data.fx !== undefined ? data.fx.toFixed(4) : "0.0000";
     document.getElementById("flow_y").innerText = data.fy !== undefined ? data.fy.toFixed(4) : "0.0000";
+    // Flow brut (rad/s)
+    document.getElementById("flow_raw_x").innerText = data.frx !== undefined ? data.frx.toFixed(4) : "0.0000";
+    document.getElementById("flow_raw_y").innerText = data.fry !== undefined ? data.fry.toFixed(4) : "0.0000";
+    // Features valides
+    let ffvEl = document.getElementById("flow_feat_valid");
+    if (data.ffv !== undefined) {
+      ffvEl.innerText = data.ffv ? "OUI" : "NON";
+      ffvEl.style.color = data.ffv ? "var(--success)" : "var(--danger)";
+    }
     // Colorer la qualite selon la valeur
     let fqEl = document.getElementById("flow_quality");
     if (data.fq !== undefined) {
@@ -1688,7 +1712,8 @@ void telemetryTask(void * parameter) {
             "\"alt_ax\":%.4f,\"alt_ay\":%.4f,\"alt_az\":%.4f,"
             "\"alt_gr\":%.2f,\"alt_gp\":%.2f,\"alt_gy\":%.2f,"
             "\"alt_ayw\":%.1f,"
-            "\"fx\":%.4f,\"fy\":%.4f,\"fq\":%d,\"li\":%.3f}",
+            "\"fx\":%.4f,\"fy\":%.4f,\"fq\":%d,\"li\":%.3f,"
+            "\"frx\":%.4f,\"fry\":%.4f,\"ffv\":%d}",
             drone_data->angle_roll, drone_data->angle_pitch, drone_data->angle_yaw,
             drone_data->channel_1, drone_data->channel_2, drone_data->channel_3, drone_data->channel_4,
             drone_data->loop_time, drone_data->max_time_radio, drone_data->max_time_imu,
@@ -1700,7 +1725,8 @@ void telemetryTask(void * parameter) {
             drone_data->alt_acc_x, drone_data->alt_acc_y, drone_data->alt_acc_z,
             drone_data->alt_gyro_roll, drone_data->alt_gyro_pitch, drone_data->alt_gyro_yaw,
             drone_data->alt_angle_yaw,
-            drone_data->flow_x_rad, drone_data->flow_y_rad, drone_data->flow_quality, drone_data->lidar_dist_m
+            drone_data->velocity_est_x, drone_data->velocity_est_y, drone_data->flow_quality, drone_data->lidar_dist_m,
+            drone_data->flow_raw_rad_x, drone_data->flow_raw_rad_y, drone_data->flow_feature_valid ? 1 : 0
         );
         request->send(200, "application/json", json_buffer);
     });

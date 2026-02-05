@@ -214,6 +214,9 @@ void loop() {
             case MODE_FLYING:
                 digitalWrite(PIN_LED, LOW); // Eteint en vol pour économiser/ne pas éblouir
 
+                // Fusion Optical Flow: calcul vitesse estimée avant PID
+                flow_compute_velocity(&drone);
+
                 pid_compute_setpoints(&drone);
                 pid_compute(&drone);
                 motors_mix(&drone);

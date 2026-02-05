@@ -115,6 +115,13 @@ typedef struct {
     float trim_roll;            // Offset roll en degrés
     float trim_pitch;           // Offset pitch en degrés
 
+    // --- Optical Flow Fusion (MSP v2) ---
+    float flow_raw_rad_x;       // Vitesse angulaire optique brute X (rad/s)
+    float flow_raw_rad_y;       // Vitesse angulaire optique brute Y (rad/s)
+    float velocity_est_x;       // Vitesse linéaire estimée X (m/s) après fusion
+    float velocity_est_y;       // Vitesse linéaire estimée Y (m/s) après fusion
+    bool flow_feature_valid;    // True si qualité > seuil (features trackées)
+
 } DroneState;
 
 #endif
