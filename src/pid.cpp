@@ -200,14 +200,16 @@ void pid_compute_setpoints(DroneState *drone) {
             float pos_err_x = drone->anchor_x - drone->position_x;
             float pos_err_y = drone->anchor_y - drone->position_y;
 
-            float vel_target_x = pos_err_x * KP_POS;
-            float vel_target_y = pos_err_y * KP_POS;
+            // Utilisation des variables drone->... pour permettre le tuning Wifi
+            float vel_target_x = pos_err_x * drone->flow_kp_pos;
+            float vel_target_y = pos_err_y * drone->flow_kp_pos;
 
             // Clamper la vélocité cible
-            if (vel_target_x > VEL_TARGET_MAX) vel_target_x = VEL_TARGET_MAX;
-            else if (vel_target_x < -VEL_TARGET_MAX) vel_target_x = -VEL_TARGET_MAX;
-            if (vel_target_y > VEL_TARGET_MAX) vel_target_y = VEL_TARGET_MAX;
-            else if (vel_target_y < -VEL_TARGET_MAX) vel_target_y = -VEL_TARGET_MAX;
+            float v_max = drone->flow_vel_max;
+            if (vel_target_x > v_max) vel_target_x = v_max;
+            else if (vel_target_x < -v_max) vel_target_x = -v_max;
+            if (vel_target_y > v_max) vel_target_y = v_max;
+            else if (vel_target_y < -v_max) vel_target_y = -v_max;
 
             // --- NIVEAU 2: Vélocité → Angle cible (PROBLEME 5) ---
             // PROBLEME 9: Mapping des axes
@@ -229,9 +231,10 @@ void pid_compute_setpoints(DroneState *drone) {
             float vel_d_pitch = (vel_err_pitch - drone->vel_prev_err_pitch) / dt;
             drone->vel_prev_err_pitch = vel_err_pitch;
 
-            float angle_cmd_pitch = KP_VEL * vel_err_pitch
-                                  + KI_VEL * drone->vel_integral_pitch
-                                  + KD_VEL * vel_d_pitch;
+            // Utiliser drone->flow_kp_vel, drone->flow_ki_vel, drone->flow_kd_vel
+            float angle_cmd_pitch = drone->flow_kp_vel * vel_err_pitch
+                                  + drone->flow_ki_vel * drone->vel_integral_pitch
+                                  + drone->flow_kd_vel * vel_d_pitch;
 
             // Roll
             drone->vel_integral_roll += vel_err_roll * dt;
@@ -243,21 +246,22 @@ void pid_compute_setpoints(DroneState *drone) {
             float vel_d_roll = (vel_err_roll - drone->vel_prev_err_roll) / dt;
             drone->vel_prev_err_roll = vel_err_roll;
 
-            float angle_cmd_roll = KP_VEL * vel_err_roll
-                                 + KI_VEL * drone->vel_integral_roll
-                                 + KD_VEL * vel_d_roll;
+            float angle_cmd_roll = drone->flow_kp_vel * vel_err_roll
+                                 + drone->flow_ki_vel * drone->vel_integral_roll
+                                 + drone->flow_kd_vel * vel_d_roll;
 
-            // Clamper les commandes d'angle
-            if (angle_cmd_pitch > ANGLE_CMD_MAX) angle_cmd_pitch = ANGLE_CMD_MAX;
-            else if (angle_cmd_pitch < -ANGLE_CMD_MAX) angle_cmd_pitch = -ANGLE_CMD_MAX;
-            if (angle_cmd_roll > ANGLE_CMD_MAX) angle_cmd_roll = ANGLE_CMD_MAX;
-            else if (angle_cmd_roll < -ANGLE_CMD_MAX) angle_cmd_roll = -ANGLE_CMD_MAX;
+            // Clamper les commandes d'angle (utiliser drone->flow_angle_max)
+            float a_max = drone->flow_angle_max;
+            if (angle_cmd_pitch > a_max) angle_cmd_pitch = a_max;
+            else if (angle_cmd_pitch < -a_max) angle_cmd_pitch = -a_max;
+            if (angle_cmd_roll > a_max) angle_cmd_roll = a_max;
+            else if (angle_cmd_roll < -a_max) angle_cmd_roll = -a_max;
 
             // --- ETAPE 4: Injection dans les setpoints (PROBLEME 9) ---
             // Les corrections sont en degrés, les setpoints en deg/s via p_level
-            // TODO CALIBRATION: ajuster FLOW_SIGN_PITCH/ROLL si correction inversée
-            drone->pid_setpoint_pitch += angle_cmd_pitch * FLOW_SIGN_PITCH;
-            drone->pid_setpoint_roll  += angle_cmd_roll * FLOW_SIGN_ROLL;
+            // Utiliser drone->flow_sign_pitch/roll pour ajuster orientation
+            drone->pid_setpoint_pitch += angle_cmd_pitch * drone->flow_sign_pitch;
+            drone->pid_setpoint_roll  += angle_cmd_roll * drone->flow_sign_roll;
         }
         else if (!sticks_centered && in_flight) {
             // Sticks actifs: optionnel, continuer le tracking de position

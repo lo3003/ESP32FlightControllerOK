@@ -661,9 +661,22 @@ const char index_html[] PROGMEM = R"rawliteral(
           <div class="pid-row"><label>Heading P</label><input type="number" step="0.1" id="ph"></div>
         </div>
         <div class="pid-section">
-          <div class="pid-title">Optical Flow</div>
-          <div class="pid-row"><label>Gain</label><input type="number" step="0.1" id="fg"></div>
-          <div class="pid-row"><label>Max Corr</label><input type="number" step="0.1" id="fmc"></div>
+          <div class="pid-title">Optical Flow - Position</div>
+          <div class="pid-row"><label>KP Pos</label><input type="number" step="0.01" id="fkpp" title="Gain P Position (0.1-1.0)"></div>
+          <div class="pid-row"><label>Vel Max</label><input type="number" step="0.1" id="fvm" title="Vitesse cible max m/s"></div>
+          <div class="pid-row"><label>Angle Max</label><input type="number" step="1.0" id="fam" title="Correction angle max degres"></div>
+        </div>
+        <div class="pid-section">
+          <div class="pid-title">Optical Flow - Velocite PID</div>
+          <div class="pid-row"><label>KP Vel</label><input type="number" step="0.01" id="fkpv" title="Gain P Velocite"></div>
+          <div class="pid-row"><label>KI Vel</label><input type="number" step="0.001" id="fkiv" title="Gain I Velocite (commencer a 0!)"></div>
+          <div class="pid-row"><label>KD Vel</label><input type="number" step="0.001" id="fkdv" title="Gain D Velocite (commencer a 0!)"></div>
+        </div>
+        <div class="pid-section">
+          <div class="pid-title">Optical Flow - Calibration</div>
+          <div class="pid-row"><label>Scale</label><input type="number" step="0.0001" id="fsc" title="Facteur echelle capteur (1/800 = 0.00125)"></div>
+          <div class="pid-row"><label>Sign Pitch</label><input type="number" step="1" id="fsp" title="Signe pitch: 1 ou -1"></div>
+          <div class="pid-row"><label>Sign Roll</label><input type="number" step="1" id="fsr" title="Signe roll: 1 ou -1"></div>
         </div>
         <div class="pid-section">
           <div class="pid-title">Trim Mécanique</div>
@@ -952,8 +965,16 @@ function loadPID() {
     document.getElementById('ph').value = data.ph;
     document.getElementById('ffpr').value = data.ffpr;
     document.getElementById('ffy').value = data.ffy;
-    document.getElementById('fg').value = data.fg;
-    document.getElementById('fmc').value = data.fmc;
+    // Flow cascade parameters
+    document.getElementById('fkpp').value = data.fkpp;
+    document.getElementById('fkpv').value = data.fkpv;
+    document.getElementById('fkiv').value = data.fkiv;
+    document.getElementById('fkdv').value = data.fkdv;
+    document.getElementById('fsc').value = data.fsc;
+    document.getElementById('fvm').value = data.fvm;
+    document.getElementById('fam').value = data.fam;
+    document.getElementById('fsp').value = data.fsp;
+    document.getElementById('fsr').value = data.fsr;
     document.getElementById('tr').value = data.tr;
     document.getElementById('tp').value = data.tp;
   });
@@ -966,7 +987,7 @@ function sendPID() {
   btn.disabled = true;
   btn.textContent = 'Mise à jour...';
   
-  let params = ['ppr','ipr','dpr','py','iy','dy','pl','ph','ffpr','ffy','fg','fmc','tr','tp'].map(id => `${id}=${document.getElementById(id).value}`).join('&');
+  let params = ['ppr','ipr','dpr','py','iy','dy','pl','ph','ffpr','ffy','fkpp','fkpv','fkiv','fkdv','fsc','fvm','fam','fsp','fsr','tr','tp'].map(id => `${id}=${document.getElementById(id).value}`).join('&');
   
   fetch(`/set_pid?${params}`)
     .then(res => {
@@ -1713,7 +1734,8 @@ void telemetryTask(void * parameter) {
             "\"alt_gr\":%.2f,\"alt_gp\":%.2f,\"alt_gy\":%.2f,"
             "\"alt_ayw\":%.1f,"
             "\"fx\":%.4f,\"fy\":%.4f,\"fq\":%d,\"li\":%.3f,"
-            "\"frx\":%.4f,\"fry\":%.4f,\"ffv\":%d}",
+            "\"frx\":%.4f,\"fry\":%.4f,\"ffv\":%d,"
+            "\"posx\":%.4f,\"posy\":%.4f,\"dtf\":%.4f}",
             drone_data->angle_roll, drone_data->angle_pitch, drone_data->angle_yaw,
             drone_data->channel_1, drone_data->channel_2, drone_data->channel_3, drone_data->channel_4,
             drone_data->loop_time, drone_data->max_time_radio, drone_data->max_time_imu,
@@ -1726,7 +1748,8 @@ void telemetryTask(void * parameter) {
             drone_data->alt_gyro_roll, drone_data->alt_gyro_pitch, drone_data->alt_gyro_yaw,
             drone_data->alt_angle_yaw,
             drone_data->velocity_est_x, drone_data->velocity_est_y, drone_data->flow_quality, drone_data->lidar_dist_m,
-            drone_data->flow_raw_rad_x, drone_data->flow_raw_rad_y, drone_data->flow_feature_valid ? 1 : 0
+            drone_data->flow_raw_rad_x, drone_data->flow_raw_rad_y, drone_data->flow_feature_valid ? 1 : 0,
+            drone_data->position_x, drone_data->position_y, drone_data->dt_flow
         );
         request->send(200, "application/json", json_buffer);
     });
@@ -1739,16 +1762,21 @@ void telemetryTask(void * parameter) {
     });
 
     server.on("/get_pid", HTTP_GET, [](AsyncWebServerRequest *request){
-        static char json_buffer[512];
+        static char json_buffer[768];
         snprintf(json_buffer, sizeof(json_buffer),
             "{\"ppr\":%.4f,\"ipr\":%.5f,\"dpr\":%.4f,"
             "\"py\":%.4f,\"iy\":%.5f,\"dy\":%.4f,"
             "\"ffpr\":%.4f,\"ffy\":%.4f,\"pl\":%.4f,\"ph\":%.4f,"
-            "\"fg\":%.4f,\"fmc\":%.4f,\"tr\":%.4f,\"tp\":%.4f}",
+            "\"fkpp\":%.4f,\"fkpv\":%.4f,\"fkiv\":%.5f,\"fkdv\":%.5f,"
+            "\"fsc\":%.6f,\"fvm\":%.2f,\"fam\":%.2f,"
+            "\"fsp\":%.1f,\"fsr\":%.1f,"
+            "\"tr\":%.4f,\"tp\":%.4f}",
             drone_data->p_pitch_roll, drone_data->i_pitch_roll, drone_data->d_pitch_roll,
             drone_data->p_yaw, drone_data->i_yaw, drone_data->d_yaw,
             drone_data->ff_pitch_roll, drone_data->ff_yaw, drone_data->p_level, drone_data->p_heading,
-            drone_data->flow_gain, drone_data->flow_max_correction,
+            drone_data->flow_kp_pos, drone_data->flow_kp_vel, drone_data->flow_ki_vel, drone_data->flow_kd_vel,
+            drone_data->flow_scale, drone_data->flow_vel_max, drone_data->flow_angle_max,
+            drone_data->flow_sign_pitch, drone_data->flow_sign_roll,
             drone_data->trim_roll, drone_data->trim_pitch
         );
         request->send(200, "application/json", json_buffer);
@@ -1765,8 +1793,16 @@ void telemetryTask(void * parameter) {
         if(request->hasParam("ph")) drone_data->p_heading = request->getParam("ph")->value().toFloat();
         if(request->hasParam("ffpr")) drone_data->ff_pitch_roll = request->getParam("ffpr")->value().toFloat();
         if(request->hasParam("ffy")) drone_data->ff_yaw = request->getParam("ffy")->value().toFloat();
-        if(request->hasParam("fg")) drone_data->flow_gain = request->getParam("fg")->value().toFloat();
-        if(request->hasParam("fmc")) drone_data->flow_max_correction = request->getParam("fmc")->value().toFloat();
+        // Flow cascade parameters
+        if(request->hasParam("fkpp")) drone_data->flow_kp_pos = request->getParam("fkpp")->value().toFloat();
+        if(request->hasParam("fkpv")) drone_data->flow_kp_vel = request->getParam("fkpv")->value().toFloat();
+        if(request->hasParam("fkiv")) drone_data->flow_ki_vel = request->getParam("fkiv")->value().toFloat();
+        if(request->hasParam("fkdv")) drone_data->flow_kd_vel = request->getParam("fkdv")->value().toFloat();
+        if(request->hasParam("fsc")) drone_data->flow_scale = request->getParam("fsc")->value().toFloat();
+        if(request->hasParam("fvm")) drone_data->flow_vel_max = request->getParam("fvm")->value().toFloat();
+        if(request->hasParam("fam")) drone_data->flow_angle_max = request->getParam("fam")->value().toFloat();
+        if(request->hasParam("fsp")) drone_data->flow_sign_pitch = request->getParam("fsp")->value().toFloat();
+        if(request->hasParam("fsr")) drone_data->flow_sign_roll = request->getParam("fsr")->value().toFloat();
         if(request->hasParam("tr")) drone_data->trim_roll = request->getParam("tr")->value().toFloat();
         if(request->hasParam("tp")) drone_data->trim_pitch = request->getParam("tp")->value().toFloat();
 

@@ -455,14 +455,14 @@ void flow_compute_velocity(DroneState* drone) {
 
     // --- ETAPE 2: Compensation gyroscopique (UNE SEULE FOIS - PROBLEME 4) ---
     // Conversion gyro deg/s -> rad/s
-    const float DEG_TO_RAD = 0.017453292f;
+    const float DEG_TO_RAD_CONV = 0.017453292f;
 
     // Mapping des axes gyro vers flow:
     // TODO CALIBRATION: vérifier l'alignement des axes selon orientation du module
     // gyro_pitch_input -> rotation autour de Y (affecte déplacement X apparent)
     // gyro_roll_input  -> rotation autour de X (affecte déplacement Y apparent)
-    float gyro_rad_x = drone->gyro_pitch_input * DEG_TO_RAD;
-    float gyro_rad_y = drone->gyro_roll_input * DEG_TO_RAD;
+    float gyro_rad_x = drone->gyro_pitch_input * DEG_TO_RAD_CONV;
+    float gyro_rad_y = drone->gyro_roll_input * DEG_TO_RAD_CONV;
 
     // Soustraction du mouvement apparent dû à la rotation du drone
     float flow_comp_x = drone->flow_raw_rad_x - gyro_rad_x;
