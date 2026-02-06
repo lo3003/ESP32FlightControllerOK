@@ -198,11 +198,12 @@ static void process_msp_packet(MspParser_t* parser) {
             }
             s_last_flow_time_us = now_us;
 
-            // --- PROBLEME 2: Facteur d'échelle corrigé (convention iNav) ---
-            // flow_rad = (motion_count * FLOW_SCALE_FACTOR) / dt_flow
-            // TODO CALIBRATION: FLOW_SCALE_FACTOR doit être calibré en vol
-            float rate_x = ((float)motion_x * FLOW_SCALE_FACTOR) / dt_flow;
-            float rate_y = ((float)motion_y * FLOW_SCALE_FACTOR) / dt_flow;
+            // --- PROBLEME 2: Taux brut sans scale (scale appliqué dans flow_compute_velocity) ---
+            // On ne multiplie PAS par FLOW_SCALE_FACTOR ici car cette fonction n'a pas
+            // accès au DroneState. Le scale runtime (drone->flow_scale) est appliqué
+            // dans flow_compute_velocity() qui a accès au DroneState.
+            float rate_x = (float)motion_x / dt_flow;
+            float rate_y = (float)motion_y / dt_flow;
 
             // --- PROBLEME 11: UN SEUL filtre LPF bien tuné ---
             // Alpha = 0.4 -> réactif mais filtre le bruit haute fréquence
@@ -450,8 +451,11 @@ void flow_compute_velocity(DroneState* drone) {
         return;
     }
 
-    // --- ETAPE 1: Taux angulaire flow déjà filtré (vient de process_msp_packet) ---
-    // flow_raw_rad_x/y sont en rad/s, déjà filtrés par LPF alpha=0.4
+    // --- ETAPE 1: Appliquer le scale factor runtime (depuis DroneState) ---
+    // Le scale n'est PAS appliqué dans process_msp_packet (pas d'accès au DroneState).
+    // On l'applique ici pour que la modification via télémétrie prenne effet immédiatement.
+    float scaled_flow_x = drone->flow_raw_rad_x * drone->flow_scale;
+    float scaled_flow_y = drone->flow_raw_rad_y * drone->flow_scale;
 
     // --- ETAPE 2: Compensation gyroscopique (UNE SEULE FOIS - PROBLEME 4) ---
     // Conversion gyro deg/s -> rad/s
@@ -465,8 +469,8 @@ void flow_compute_velocity(DroneState* drone) {
     float gyro_rad_y = drone->gyro_roll_input * DEG_TO_RAD_CONV;
 
     // Soustraction du mouvement apparent dû à la rotation du drone
-    float flow_comp_x = drone->flow_raw_rad_x - gyro_rad_x;
-    float flow_comp_y = drone->flow_raw_rad_y - gyro_rad_y;
+    float flow_comp_x = scaled_flow_x - gyro_rad_x;
+    float flow_comp_y = scaled_flow_y - gyro_rad_y;
 
     // --- ETAPE 3: Conversion en vitesse linéaire (rad/s * m = m/s) ---
     float vel_x = flow_comp_x * altitude;
