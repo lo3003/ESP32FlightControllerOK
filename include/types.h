@@ -101,9 +101,16 @@ typedef struct {
     float lidar_dist_m;     // Distance sol en mètres
     bool flow_valid;        // Si le capteur est vivant
 
-    // --- Optical Flow Position Hold ---
-    float flow_gain;            // Gain proportionnel flow → rate setpoint
-    float flow_max_correction;  // Max ± deg/s de correction
+    // --- Optical Flow Cascade Gains (modifiables en runtime via télémétrie) ---
+    float flow_kp_pos;          // Gain P position (défaut: 0.3)
+    float flow_kp_vel;          // Gain P vélocité (défaut: 0.2)
+    float flow_ki_vel;          // Gain I vélocité (défaut: 0.0 - commencer à zéro!)
+    float flow_kd_vel;          // Gain D vélocité (défaut: 0.0 - commencer à zéro!)
+    float flow_scale;           // Facteur d'échelle capteur (défaut: 0.00125 = 1/800)
+    float flow_sign_pitch;      // Signe axe pitch : 1.0 ou -1.0 (défaut: 1.0)
+    float flow_sign_roll;       // Signe axe roll : 1.0 ou -1.0 (défaut: 1.0)
+    float flow_vel_max;         // Vitesse cible max m/s (défaut: 1.0)
+    float flow_angle_max;       // Correction angle max degrés (défaut: 15.0)
 
     // --- Altitude Hold (Lidar) ---
     float altitude_target;      // Consigne mémorisée en m
@@ -118,9 +125,24 @@ typedef struct {
     // --- Optical Flow Fusion (MSP v2) ---
     float flow_raw_rad_x;       // Vitesse angulaire optique brute X (rad/s)
     float flow_raw_rad_y;       // Vitesse angulaire optique brute Y (rad/s)
-    float velocity_est_x;       // Vitesse linéaire estimée X (m/s) après fusion
-    float velocity_est_y;       // Vitesse linéaire estimée Y (m/s) après fusion
+    float velocity_est_x;       // Vitesse linéaire estimée X (m/s) après fusion gyro+altitude
+    float velocity_est_y;       // Vitesse linéaire estimée Y (m/s) après fusion gyro+altitude
+    float dt_flow;              // Secondes, dt réel entre paquets MSP (pour intégration)
+    bool flow_data_new;         // True = nouvelles données flow disponibles (reset après lecture)
     bool flow_feature_valid;    // True si qualité > seuil (features trackées)
+
+    // --- Position Hold (gérés par pid.cpp) ---
+    float position_x;           // Mètres, position intégrée X
+    float position_y;           // Mètres, position intégrée Y
+    float anchor_x;             // Mètres, point d'ancrage X (capturé au lâcher sticks)
+    float anchor_y;             // Mètres, point d'ancrage Y
+    bool was_sticks_centered;   // Pour détecter transition stick→centered
+
+    // --- PID Vélocité (état interne position hold) ---
+    float vel_integral_pitch;   // Intégrateur PID vélocité Pitch
+    float vel_integral_roll;    // Intégrateur PID vélocité Roll
+    float vel_prev_err_pitch;   // Erreur précédente pour dérivée Pitch
+    float vel_prev_err_roll;    // Erreur précédente pour dérivée Roll
 
 } DroneState;
 

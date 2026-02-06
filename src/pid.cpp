@@ -35,9 +35,8 @@ static float last_valid_yaw = 0.0f;     // Dernier yaw valide mémorisé
 static float pid_i_mem_alt = 0.0f;
 static float pid_last_alt_error = 0.0f;
 
-// --- POSITION HOLD (Optical Flow - MEMOIRE DE POSITION) ---
-static float flow_pos_err_x = 0.0f;     // Erreur de position accumulée X (Distance virtuelle)
-static float flow_pos_err_y = 0.0f;     // Erreur de position accumulée Y
+// --- POSITION HOLD (Optical Flow - Variables supprimées, maintenant dans DroneState) ---
+// Les variables position_x/y, anchor_x/y, vel_integral, vel_prev_err sont dans DroneState
 
 // Paramètres Heading Hold
 static const float YAW_DEADBAND = 20.0f;        // Deadband stick yaw (±20 autour de 1500)
@@ -70,10 +69,16 @@ void pid_init_params(DroneState *drone) {
     // HEADING HOLD
     drone->p_heading = 1.1f;
 
-    // OPTICAL FLOW (Position Hold)
-    // ATTENTION : Gain réduit car on travaille maintenant sur l'intégrale (position)
-    drone->flow_gain = 2.0f;           // Gain plus faible (était 25.0)
-    drone->flow_max_correction = 20.0f; // Max inclinaison pour corriger (deg/s)
+    // OPTICAL FLOW CASCADE (Position Hold) - Valeurs par défaut conservatrices
+    drone->flow_kp_pos = KP_POS_DEFAULT;          // 0.3 - Gain P position
+    drone->flow_kp_vel = KP_VEL_DEFAULT;          // 0.2 - Gain P vélocité
+    drone->flow_ki_vel = KI_VEL_DEFAULT;          // 0.0 - COMMENCER A ZERO!
+    drone->flow_kd_vel = KD_VEL_DEFAULT;          // 0.0 - COMMENCER A ZERO!
+    drone->flow_scale = FLOW_SCALE_DEFAULT;       // 1/800 - Facteur d'échelle
+    drone->flow_sign_pitch = FLOW_SIGN_PITCH_DEFAULT;  // 1.0
+    drone->flow_sign_roll = FLOW_SIGN_ROLL_DEFAULT;    // 1.0
+    drone->flow_vel_max = VEL_TARGET_MAX_DEFAULT; // 1.0 m/s
+    drone->flow_angle_max = ANGLE_CMD_MAX_DEFAULT; // 15.0 deg
 
     // ALTITUDE HOLD
     drone->p_alt = 200.0f;
@@ -111,9 +116,8 @@ void pid_reset_integral() {
     pid_i_mem_alt = 0.0f;
     pid_last_alt_error = 0.0f;
 
-    // Reset Position Hold
-    flow_pos_err_x = 0.0f;
-    flow_pos_err_y = 0.0f;
+    // Reset Position Hold - Ces variables sont maintenant dans DroneState
+    // Elles seront réinitialisées via pid_reset_position_hold()
 }
 
 // --- CALCUL DES CONSIGNES (Setpoints) ---
@@ -140,70 +144,138 @@ void pid_compute_setpoints(DroneState *drone) {
     float input_pitch = stick_pitch - (drone->angle_pitch * drone->p_level);
     drone->pid_setpoint_pitch = input_pitch / 3.0f;
 
-    // --- POSITION HOLD (Optical Flow - NOUVELLE LOGIQUE) ---
-    // Actif : sticks centrés, qualité > 50, en vol, et LIDAR valide (> 10cm)
+    // ==========================================================================
+    // POSITION HOLD - CASCADE COMPLETE (PROBLEMES 3, 4, 5, 6, 7, 8, 9, 10)
+    // Architecture: Position → Vélocité → Angle
+    // La compensation gyro est faite UNE SEULE FOIS dans flow_compute_velocity()
+    // ==========================================================================
     {
-        bool roll_centered  = (drone->channel_1 >= 1450 && drone->channel_1 <= 1550);
-        bool pitch_centered = (drone->channel_2 >= 1450 && drone->channel_2 <= 1550);
-        bool lidar_ok       = (drone->lidar_dist_m > 0.1f); 
+        // Détection sticks centrés (PROBLEME 8)
+        bool roll_centered  = (drone->channel_1 >= (1500 - STICK_DEADBAND) &&
+                               drone->channel_1 <= (1500 + STICK_DEADBAND));
+        bool pitch_centered = (drone->channel_2 >= (1500 - STICK_DEADBAND) &&
+                               drone->channel_2 <= (1500 + STICK_DEADBAND));
+        bool sticks_centered = roll_centered && pitch_centered;
 
-        if (roll_centered && pitch_centered && lidar_ok &&
-            drone->flow_quality > 50 &&
-            drone->current_mode == MODE_FLYING)
-        {
-            // --- 1. COMPENSATION GYROSCOPIQUE ---
-            // On enlève la part du flux due à la rotation du drone
-            float gyro_roll_rad = drone->gyro_roll_input * (PI / 180.0f);
-            float gyro_pitch_rad = drone->gyro_pitch_input * (PI / 180.0f);
+        // Conditions de validité
+        bool lidar_ok = (drone->lidar_dist_m >= FLOW_MIN_ALT &&
+                         drone->lidar_dist_m <= FLOW_MAX_ALT);
+        bool flow_ok  = (drone->flow_quality >= FLOW_QUALITY_MIN &&
+                         drone->flow_valid && drone->flow_feature_valid);
+        bool in_flight = (drone->current_mode == MODE_FLYING);
 
-            // Note : Signes à vérifier selon orientation capteur.
-            // Si le drone oscille violemment, inverser les signes gyro ici.
-            float flow_x_comp = drone->flow_x_rad - gyro_pitch_rad; 
-            float flow_y_comp = drone->flow_y_rad + gyro_roll_rad;
+        // --- PROBLEME 10: N'intégrer QUE sur nouvelles données flow ---
+        if (drone->flow_data_new && flow_ok && lidar_ok && in_flight) {
 
-            // --- 2. INTEGRATION (POSITION VIRTUELLE) ---
-            // dt standard de la boucle (approx 0.004s)
-            float dt = 0.004f; 
-            
-            // Accumulation de la vitesse pour obtenir la position (Distance)
-            flow_pos_err_x += flow_x_comp * dt;
-            flow_pos_err_y += flow_y_comp * dt;
+            // --- ETAPE 1: Intégration de position (PROBLEMES 3, 6) ---
+            // On utilise velocity_est_x/y (m/s) déjà compensés par flow_compute_velocity()
+            // PAS de double compensation gyro ici (PROBLEME 4)
+            drone->position_x += drone->velocity_est_x * drone->dt_flow;
+            drone->position_y += drone->velocity_est_y * drone->dt_flow;
 
-            // --- 3. REGULATION P SUR LA POSITION ---
-            // Facteur hauteur : plus on est haut, plus il faut corriger fort
-            float height_factor = drone->lidar_dist_m;
-            if (height_factor < 0.5f) height_factor = 0.5f;
-            if (height_factor > 2.0f) height_factor = 2.0f;
-            
-            // Correction proportionnelle à l'erreur de POSITION
-            // Signe (-) car on veut s'opposer au déplacement
-            float correction_x = -1.0f * flow_pos_err_x * drone->flow_gain * height_factor;
-            float correction_y = -1.0f * flow_pos_err_y * drone->flow_gain * height_factor;
-
-            // --- 4. CLAMPING ET DECAY (ANTI-DERIVE) ---
-            // Leaky Integrator : on "oublie" doucement la position pour éviter le drift infini
-            // agit comme un ressort qui se relâche très lentement
-            flow_pos_err_x *= 0.999f; 
-            flow_pos_err_y *= 0.999f;
-
-            // Bornage de sécurité sur la CORRECTION (Rate max ajouté)
-            if (correction_x > drone->flow_max_correction)        correction_x = drone->flow_max_correction;
-            else if (correction_x < -drone->flow_max_correction)  correction_x = -drone->flow_max_correction;
-
-            if (correction_y > drone->flow_max_correction)        correction_y = drone->flow_max_correction;
-            else if (correction_y < -drone->flow_max_correction)  correction_y = -drone->flow_max_correction;
-
-            // --- 5. INJECTION DANS LE SETPOINT ---
-            // Drone dérive en X (Latéral) -> Correction sur Roll
-            // Drone dérive en Y (Avant/Arrière) -> Correction sur Pitch
-            drone->pid_setpoint_roll  += correction_x;
-            drone->pid_setpoint_pitch += correction_y;
+            // Anti-windup sur la position (PROBLEME 7: pas de leaky integrator)
+            if (drone->position_x > FLOW_POS_CLAMP) drone->position_x = FLOW_POS_CLAMP;
+            else if (drone->position_x < -FLOW_POS_CLAMP) drone->position_x = -FLOW_POS_CLAMP;
+            if (drone->position_y > FLOW_POS_CLAMP) drone->position_y = FLOW_POS_CLAMP;
+            else if (drone->position_y < -FLOW_POS_CLAMP) drone->position_y = -FLOW_POS_CLAMP;
         }
-        else 
-        {
-            // RESET : Si on bouge les sticks ou Lidar HS, on oublie la position
-            flow_pos_err_x = 0.0f;
-            flow_pos_err_y = 0.0f;
+
+        // --- ETAPE 2: Gestion de l'ancre (PROBLEME 8) ---
+        if (sticks_centered && !drone->was_sticks_centered && in_flight) {
+            // Transition: sticks viennent d'être relâchés → capturer l'ancre
+            drone->anchor_x = drone->position_x;
+            drone->anchor_y = drone->position_y;
+            // Reset des intégrateurs vélocité pour départ propre
+            drone->vel_integral_pitch = 0.0f;
+            drone->vel_integral_roll = 0.0f;
+            drone->vel_prev_err_pitch = 0.0f;
+            drone->vel_prev_err_roll = 0.0f;
+        }
+        drone->was_sticks_centered = sticks_centered;
+
+        // --- ETAPE 3: Cascade PID si conditions réunies ---
+        if (sticks_centered && flow_ok && lidar_ok && in_flight && drone->flow_data_new) {
+
+            // --- NIVEAU 1: Position → Vélocité cible (PROBLEME 5) ---
+            float pos_err_x = drone->anchor_x - drone->position_x;
+            float pos_err_y = drone->anchor_y - drone->position_y;
+
+            float vel_target_x = pos_err_x * KP_POS;
+            float vel_target_y = pos_err_y * KP_POS;
+
+            // Clamper la vélocité cible
+            if (vel_target_x > VEL_TARGET_MAX) vel_target_x = VEL_TARGET_MAX;
+            else if (vel_target_x < -VEL_TARGET_MAX) vel_target_x = -VEL_TARGET_MAX;
+            if (vel_target_y > VEL_TARGET_MAX) vel_target_y = VEL_TARGET_MAX;
+            else if (vel_target_y < -VEL_TARGET_MAX) vel_target_y = -VEL_TARGET_MAX;
+
+            // --- NIVEAU 2: Vélocité → Angle cible (PROBLEME 5) ---
+            // PROBLEME 9: Mapping des axes
+            // TODO CALIBRATION: vérifier quel axe flow correspond à Pitch/Roll
+            // Convention supposée: X_flow = avant/arrière = Pitch, Y_flow = latéral = Roll
+            float vel_err_pitch = vel_target_y - drone->velocity_est_y;  // Y = Pitch
+            float vel_err_roll  = vel_target_x - drone->velocity_est_x;  // X = Roll
+
+            // PID complet sur la vélocité
+            float dt = drone->dt_flow;
+
+            // Pitch
+            drone->vel_integral_pitch += vel_err_pitch * dt;
+            if (drone->vel_integral_pitch > VEL_INTEGRAL_MAX)
+                drone->vel_integral_pitch = VEL_INTEGRAL_MAX;
+            else if (drone->vel_integral_pitch < -VEL_INTEGRAL_MAX)
+                drone->vel_integral_pitch = -VEL_INTEGRAL_MAX;
+
+            float vel_d_pitch = (vel_err_pitch - drone->vel_prev_err_pitch) / dt;
+            drone->vel_prev_err_pitch = vel_err_pitch;
+
+            float angle_cmd_pitch = KP_VEL * vel_err_pitch
+                                  + KI_VEL * drone->vel_integral_pitch
+                                  + KD_VEL * vel_d_pitch;
+
+            // Roll
+            drone->vel_integral_roll += vel_err_roll * dt;
+            if (drone->vel_integral_roll > VEL_INTEGRAL_MAX)
+                drone->vel_integral_roll = VEL_INTEGRAL_MAX;
+            else if (drone->vel_integral_roll < -VEL_INTEGRAL_MAX)
+                drone->vel_integral_roll = -VEL_INTEGRAL_MAX;
+
+            float vel_d_roll = (vel_err_roll - drone->vel_prev_err_roll) / dt;
+            drone->vel_prev_err_roll = vel_err_roll;
+
+            float angle_cmd_roll = KP_VEL * vel_err_roll
+                                 + KI_VEL * drone->vel_integral_roll
+                                 + KD_VEL * vel_d_roll;
+
+            // Clamper les commandes d'angle
+            if (angle_cmd_pitch > ANGLE_CMD_MAX) angle_cmd_pitch = ANGLE_CMD_MAX;
+            else if (angle_cmd_pitch < -ANGLE_CMD_MAX) angle_cmd_pitch = -ANGLE_CMD_MAX;
+            if (angle_cmd_roll > ANGLE_CMD_MAX) angle_cmd_roll = ANGLE_CMD_MAX;
+            else if (angle_cmd_roll < -ANGLE_CMD_MAX) angle_cmd_roll = -ANGLE_CMD_MAX;
+
+            // --- ETAPE 4: Injection dans les setpoints (PROBLEME 9) ---
+            // Les corrections sont en degrés, les setpoints en deg/s via p_level
+            // TODO CALIBRATION: ajuster FLOW_SIGN_PITCH/ROLL si correction inversée
+            drone->pid_setpoint_pitch += angle_cmd_pitch * FLOW_SIGN_PITCH;
+            drone->pid_setpoint_roll  += angle_cmd_roll * FLOW_SIGN_ROLL;
+        }
+        else if (!sticks_centered && in_flight) {
+            // Sticks actifs: optionnel, continuer le tracking de position
+            // mais ne pas appliquer de correction
+            // Reset des intégrateurs pour éviter accumulation pendant pilotage manuel
+            drone->vel_integral_pitch = 0.0f;
+            drone->vel_integral_roll = 0.0f;
+        }
+        else if (!in_flight) {
+            // Pas en vol: reset complet
+            drone->position_x = 0.0f;
+            drone->position_y = 0.0f;
+            drone->anchor_x = 0.0f;
+            drone->anchor_y = 0.0f;
+            drone->vel_integral_pitch = 0.0f;
+            drone->vel_integral_roll = 0.0f;
+            drone->vel_prev_err_pitch = 0.0f;
+            drone->vel_prev_err_roll = 0.0f;
         }
     }
 

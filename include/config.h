@@ -61,5 +61,63 @@
 #define PIN_FLOW_TX    17  // Connecté au RX du Matek
 #define FLOW_BAUD      115200
 
+// =============================================================================
+// OPTICAL FLOW - POSITION HOLD CONFIGURATION
+// =============================================================================
+
+// --- Calibration Flow - VALEURS PAR DEFAUT pour DroneState ---
+// Ces valeurs sont utilisées pour l'initialisation de DroneState.
+// En runtime, les gains sont modifiables via la télémétrie.
+// Facteur d'échelle counts->rad/s. Convention iNav: 1/800.
+#define FLOW_SCALE_DEFAULT   (1.0f / 800.0f)
+// Legacy define pour compatibilité (sera remplacé par drone->flow_scale)
+#define FLOW_SCALE_FACTOR    FLOW_SCALE_DEFAULT
+
+// --- Seuils de validité ---
+#define FLOW_QUALITY_MIN     30      // Qualité minimum capteur (0-255)
+#define FLOW_MIN_ALT         0.1f    // Altitude minimum en mètres
+#define FLOW_MAX_ALT         4.0f    // Altitude maximum en mètres
+
+// --- Filtre LPF unique sur flow brut ---
+#define FLOW_LPF_ALPHA       0.4f    // 0.4 = réactif mais lisse
+
+// --- Limites de sécurité ---
+#define FLOW_VEL_CLAMP       3.0f    // Max vitesse estimée m/s
+#define FLOW_POS_CLAMP       5.0f    // Max position accumulée m (anti-windup)
+#define FLOW_DT_MIN          0.01f   // dt minimum entre paquets (100 Hz max)
+#define FLOW_DT_MAX          0.5f    // dt maximum (timeout si > 0.5s)
+
+// --- Mapping axes - VALEURS PAR DEFAUT (modifiables via télémétrie) ---
+// Si flèche Matek pointe vers l'avant du drone:
+//   X_capteur = déplacement avant/arrière = Pitch
+//   Y_capteur = déplacement latéral = Roll
+// Inverser les signes si le drone corrige dans le mauvais sens.
+#define FLOW_SIGN_PITCH_DEFAULT  1.0f    // 1.0 ou -1.0 selon orientation
+#define FLOW_SIGN_ROLL_DEFAULT   1.0f    // 1.0 ou -1.0 selon orientation
+// Legacy defines pour compatibilité
+#define FLOW_SIGN_PITCH      FLOW_SIGN_PITCH_DEFAULT
+#define FLOW_SIGN_ROLL       FLOW_SIGN_ROLL_DEFAULT
+
+// --- PID Position - VALEURS PAR DEFAUT (modifiables via télémétrie) ---
+#define KP_POS_DEFAULT       0.3f    // Gain P position (réduit pour sécurité)
+#define VEL_TARGET_MAX_DEFAULT 1.0f  // Vitesse cible max m/s
+// Legacy defines
+#define KP_POS               KP_POS_DEFAULT
+#define VEL_TARGET_MAX       VEL_TARGET_MAX_DEFAULT
+
+// --- PID Vélocité - VALEURS PAR DEFAUT (modifiables via télémétrie) ---
+#define KP_VEL_DEFAULT       0.2f    // Gain P vélocité (réduit pour sécurité)
+#define KI_VEL_DEFAULT       0.0f    // COMMENCER A ZERO! Augmenter progressivement
+#define KD_VEL_DEFAULT       0.0f    // COMMENCER A ZERO! Augmenter progressivement
+#define ANGLE_CMD_MAX_DEFAULT 15.0f  // Max correction angle en degrés
+#define VEL_INTEGRAL_MAX     5.0f    // Anti-windup intégrateur vélocité (fixe)
+// Legacy defines
+#define KP_VEL               KP_VEL_DEFAULT
+#define KI_VEL               KI_VEL_DEFAULT
+#define KD_VEL               KD_VEL_DEFAULT
+#define ANGLE_CMD_MAX        ANGLE_CMD_MAX_DEFAULT
+
+// --- Deadband sticks (pour détecter "sticks centrés") ---
+#define STICK_DEADBAND       50      // ±50 autour de 1500 (1450-1550)
 
 #endif
